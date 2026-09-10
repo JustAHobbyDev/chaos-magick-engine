@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 — 2026-09-10
+
+- Preserved the v0.1 prompt byte-for-byte in `archive/constraint-pathfinding-v0.1.md`; original baseline, rubric, three fixtures and recorded hashes are unchanged.
+- Recorded the baseline failure explicitly: safe constraint auditing succeeded, but seeded candidates and operator-count diversity did not demonstrate a creative engine. The historical 21/26 is not rewritten.
+- Added a verbatim source boundary, goal hierarchy/kernel, typed claim ledger, eight projections, rival representations and discriminators. Free search and paradigm cycling precede the rescue catalog; external knowledge expansion must update literal mechanisms, not metaphors.
+- Separated generation from reality re-entry, made external decision edges explicit, added independently checked mechanism salvage, actual/proposed/conditional partial progress and a persistent search frontier. Added short direct/impossible adaptations and attention/negative-result stop rules.
+- Added the design decision, separate v0.2 validity/discovery rubric, and five unseeded-by-solution synthetic fixtures for ambiguity, partial bridges, institutional research, rehearsal blockage and truthful salvage. The institutional case does not prove model-unfamiliar vocabulary discovery.
+- Preserved 24 raw single-pass in-session development applications with frozen prompts, input/assembled-input/output hashes, shared research metadata, conformance limitations and per-case comparison. No independent/blinded evaluation or isolated model invocation is claimed.
+- Negative result: no useful mechanism or material partial bridge absent from both ordinary and v0.1 responses was demonstrated. All variants solved the sensor conversion; v0.2's frames mostly repeated known mechanisms and increased output length. Stopped without fixture tuning or claiming discovery success.
+- Updated README and direct structural verification; added no application code, runtime, dependencies or execution infrastructure.
+
 ## 0.1.0 — 2026-09-10
 
 - Bootstrapped the canonical Constraint Pathfinding prompt with input normalization, ordered path analysis, 18 transformations, adversarial checks, evidence labels, comparison dimensions, falsification experiments and the required output contract.

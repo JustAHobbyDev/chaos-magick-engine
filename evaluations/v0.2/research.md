@@ -1,0 +1,11 @@
+# Shared read-only research record
+
+Access date: 2026-09-10. Actual web search query: `site.nlm.nih.gov public individuals obtain journal articles interlibrary loan library DOCLINE`. Search followed by opening all three official pages below. This research preceded the three open-world outputs and was available in their shared context; it is not an independently discovered result for each prompt. No citation or holdings lookup was possible because the fixture withholds the article identity.
+
+- R1: [NLM Interlibrary Loan](https://www.nlm.nih.gov/psd/cas/illhome.html). NLM supplies biomedical materials to libraries through DOCLINE. Individuals are directed to local libraries. This verifies an institutional route, not this resident's eligibility or delivery.
+- R2: [DOCLINE participation guidelines](https://www.nlm.nih.gov/docline/doclineguidelines.html). Unaffiliated individuals cannot join. Libraries unable to lend may use the NLM-only participation category. This narrows which actor can request; no local membership is established. The listed institutional item fee is not a patron quote and is not used to assert affordability.
+- R3: [NLM access FAQ](https://support.nlm.nih.gov/knowledgebase/article/KA-04963/en-us). Copy requests go through borrowing libraries; the FAQ directs individuals to public, academic or hospital libraries for services and fees. The tool returned a read-only page with an offline banner; substantive text agrees with R1/R2.
+
+Vocabulary encountered: interlibrary loan (ILL), request routing, DOCLINE, NLM-only participant. The relation is access through an authorized institutional intermediary rather than personal affiliation. No patent, historical, cross-cultural or genuinely remote-domain search was performed. Research did not establish holdings, copying permission for this article, local service, patron charges, response times or actual access.
+
+Upwork: no new policy claims are verified in this batch. All platform-dependent candidates remain held; the historical baseline's links and access date are preserved without treating them as current evidence. Synthetic closed-world cases need no web research. No field experiment, contact, account use or external write occurred.

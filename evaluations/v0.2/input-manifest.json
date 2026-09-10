@@ -1,0 +1,43 @@
+{
+  "date": "2026-09-10",
+  "assembly": "full prompt bytes + one LF byte + full case bytes",
+  "inputs": {
+    "cases/blocked-strategic.md": "5c60b58e270ba7278728e69508cce10319873bfcb8469a744ceb1a8eb3666c26",
+    "cases/direct-path-control.md": "7013f7b7436aac164f86b8001771145326742c2920ec4a92a2068e9aecee6fd1",
+    "cases/first-upwork-contract.md": "7549585f8ae03b1beabd75a3cb6c1585a1f92e3566e2bd5f7062965bd51dd840",
+    "cases/infeasible-goal-control.md": "402f2f1f4ee2005f67feb34abbbef67acf8b6affb21315e439c4d0ec189349e8",
+    "cases/mechanism-salvage.md": "df041cdae0ca7d43753f3bb9c99314be2369a219a05118b0e410c642841a454c",
+    "cases/open-world.md": "7794452ba4ca10c87186d8a5ca70808a8708c3010d1b446e8a370e1ce3a0fff2",
+    "cases/partial-bridge.md": "05d8ec35420418f6dfc2073e84bd8cce4eff8d18d77012d91b129ae48eeed6c6",
+    "cases/representation-ambiguity.md": "cc1c7ca9a8f3138b65909c9f2cc1f3ca6f5fe0c2009a0f11ae9e0298e49b6a0a",
+    "evaluations/v0.2/prompts/ordinary.md": "7d62bb15a1de989a8d62af9df5f29f53f1063953a051f70d2142befa705beba8",
+    "evaluations/v0.2/prompts/v0.1.md": "5586daae256fa6a798275775d8c08a996663c04eedfdaca77d53ac3e41397c97",
+    "evaluations/v0.2/prompts/v0.2.md": "fc2d5bd343372495beed71dc55cf35d5396f6fd8c141b3f088626f3da6ded7b0"
+  },
+  "pairs": {
+    "blocked-strategic/ordinary": "cca7c9e57500619a433eda00b950cb35ad0892a1280b12495813c30971f72667",
+    "blocked-strategic/v0.1": "794d22b315a927eb075f1984a3b7f9211afdc7fcd4d54ed3924f04ef41e8758d",
+    "blocked-strategic/v0.2": "df76ee56a3a6347fb0509c6e88b12f291a787b005837e9b1681b6b7be7e9a557",
+    "direct-path-control/ordinary": "5980c6183e549ea841b51b2985a83a4d2401362aa4746d437659d015df6ddc99",
+    "direct-path-control/v0.1": "c8622ff11bcb283c41b99b841b15979ba013f35f7cf26463e039ce304399cb5f",
+    "direct-path-control/v0.2": "9247b6446320c607818b89cb6ace986903db7a1ce30110957db24f987bd24470",
+    "first-upwork-contract/ordinary": "cc447203e72b694e3e7eec6817cb55b07d94cb06304b921f93c818b150021062",
+    "first-upwork-contract/v0.1": "360f60690f4dec883537b3aa3fc8d809b3724974fe45fb22e7207f0a0762189f",
+    "first-upwork-contract/v0.2": "3f1113ba5ea437fd6746ffbcdba0379e8abe073465f831ca545b4a0e6a7e3945",
+    "infeasible-goal-control/ordinary": "8702dc6972a99ac5a277b339e44b3a8aaad4bb34f36e4d49b10954d7107fc2e0",
+    "infeasible-goal-control/v0.1": "6a3944fd62be6fee27a9290c46acad60cd58e5ba9c97d4a35e0ec385da01d726",
+    "infeasible-goal-control/v0.2": "e57a90b79d89c9bdd5a21c86d9666bda2f0de772e240257afdc5573f68882a51",
+    "mechanism-salvage/ordinary": "65ffe7af1d4190aa6acb7fc4b52ea17d025f5d5d4725e9e5ab29aad0c03e6522",
+    "mechanism-salvage/v0.1": "d89b1e341434841ca68c07c364ba6300dfaa4748e08d8bd1998f1f967454c8a0",
+    "mechanism-salvage/v0.2": "ddd4f882502671b4f861b60998bfac8211bc55020ff8a0e673fd2e543b4ece07",
+    "open-world/ordinary": "c7390b4dd514f19fd0509922e252cf0a32a3eb592ece1c54689272accf8a47a7",
+    "open-world/v0.1": "0bb77376d3d2d0303d851b62fd9686be7b41a61c08c4cf700d838f0d55334479",
+    "open-world/v0.2": "0342803e789d487ebe8aeb777e0c469dd5f59a126c2da8f9b241421aff72834c",
+    "partial-bridge/ordinary": "00582d9f0e4111d61e1a324ae66ebdfb548c4a162a995103aea4967f11e5d771",
+    "partial-bridge/v0.1": "6f5dd879b28c06f7ab960c985482aabd9ea6322a4b5137c2e023c47cbd927d07",
+    "partial-bridge/v0.2": "fb69f833885d2f0fe61a1b0d5f0d2fb82b9af474563a1e961019e63a4fce0876",
+    "representation-ambiguity/ordinary": "7b991385c2739959371e915509377c9bf5364a0bc7fb1c3b43dc539f82c19fac",
+    "representation-ambiguity/v0.1": "393c85836f295cf6bc7774e6768dc9b3ed7df74d1876f63c149896693e654069",
+    "representation-ambiguity/v0.2": "d2fb9ec2fab053d2fc485577606f9da7f7ec4ae7729b01611657f52bdeaaf942"
+  }
+}
