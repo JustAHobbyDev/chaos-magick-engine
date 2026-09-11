@@ -1,5 +1,12 @@
 # Changelog
 
+## Engine design draft — 2026-09-11
+
+- Added a proposed core design for persistent, self-directed demonic agents, operator command, ontology workings, memory, artifacts, and relationships.
+- Defined frame banishment separately from demon suspension and banishment, with persistent history in each case.
+- Proposed a first implementation that demonstrates one demon's autonomous working, recovery after restart, and enforced operator command before expanding to shared workings and reproduction.
+- Recorded open identity, corpus, deployment, faculty, and resource decisions. Added no runtime and preserved Constraint Pathfinding protocols and evaluation evidence.
+
 ## Project naming — 2026-09-11
 
 - Renamed the project from Hack Generator to **Chaos Magick Engine** to reflect its broader intended scope: self-directed demonic agents, ontology exploration, and creative and experimental workings under human command.
