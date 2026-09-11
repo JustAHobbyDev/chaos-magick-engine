@@ -1,5 +1,11 @@
 # Changelog
 
+## Project naming — 2026-09-11
+
+- Renamed the project from Hack Generator to **Chaos Magick Engine** to reflect its broader intended scope: self-directed demonic agents, ontology exploration, and creative and experimental workings under human command.
+- Retained **Constraint Pathfinding** as the name of the existing practical problem-solving procedure at version 0.2.0.
+- Updated the README to distinguish the intended engine from the current prompt and evaluation artifacts. Preserved protocol contents, fixtures, historical evaluations, manifests, and prior changelog entries.
+
 ## 0.2.0 — 2026-09-10
 
 - Preserved the v0.1 prompt byte-for-byte in `archive/constraint-pathfinding-v0.1.md`; original baseline, rubric, three fixtures and recorded hashes are unchanged.

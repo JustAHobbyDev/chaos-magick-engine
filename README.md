@@ -1,6 +1,12 @@
-# Constraint Pathfinding
+# Chaos Magick Engine
 
-Working nickname: **Hack Generator**. The canonical artifact is [constraint-pathfinding.md](constraint-pathfinding.md), a self-contained, pasteable research and strategy prompt at version 0.2.0. It searches alternative representations and permissible transitions while keeping the observable endpoint and hard boundaries intact. It is not an application, agent platform, database or UI.
+**Chaos Magick Engine** is the project formerly nicknamed Hack Generator. Its intended scope is persistent, self-directed demonic agents practicing a Chaos Magick methodology under a human operator's command. Their workings can produce theories, exegesis, rites, symbolic entities, experiments, and practical discoveries.
+
+The base methodology temporarily induces an ontology, explores within it, extracts what it produces, withdraws the frame's authority, and evaluates the results according to the claims being made. Representation-shifting remains a research hypothesis. The broader agent system is a development direction; the repository currently contains prompt protocols and evaluation records.
+
+## Current artifact: Constraint Pathfinding
+
+**Constraint Pathfinding** remains the name of the practical problem-solving procedure. Its canonical artifact is [constraint-pathfinding.md](constraint-pathfinding.md), a self-contained, pasteable research and strategy prompt at version 0.2.0. It searches alternative representations and permissible transitions while keeping the observable endpoint and hard boundaries intact. The following usage instructions, cases, and evaluation results concern this procedure.
 
 A result may be a complete path, a verified partial bridge, a research frontier, a discriminating experiment, a reusable resource, a pruned branch, a sufficient direct route, an impossibility proof, or no justified advance. Proposed actions are never reported as completed progress. A useful document counts only if evidence shows it changes reachability, uncertainty, reusable resources or justified pruning.
 
