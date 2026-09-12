@@ -64,3 +64,10 @@
 - Added a private Unix-socket console, command-epoch interruption, process-lifetime writer lock, bounded cancellation/shutdown, and crash recovery with conservative reservations.
 - Added an offline demo that actually restarts subprocesses, suppresses a barrier-controlled stale response, exports artifacts, and records execution evidence; added invariant and subprocess tests.
 - Documented setup, supported scope, technical decisions, and verification. Preserved historical prompt/evaluation artifacts. No live model-backed demon or creative efficacy is claimed.
+
+## Context budgeting fixes — 2026-09-11
+
+- Assembled required context before optional context. Assimilation material was compiled after the optional catalogue, history, feedback, and self-account blocks, so optional material claimed the budget first and the required block was refused after it; a working could reach assimilation and never leave it, because the step checkpointed, cleared the wake, and every later summons recompiled the same overflowing context.
+- Stopped copying corpus text into operation results. `read_corpus` now records a reference, hash, and character count, so a read no longer adds its full text to every later compiled context permanently.
+- Made recent operation history required and bounded to 50 operations, and added a deduplicated `read_material` block for corpus text. History carries the demon's position, and dropping it made the demon repeat committed work: one observed run spent 16 of 20 calls re-reading the same entry. Reading one entry repeatedly now costs one copy of its text.
+- Added three context-budget tests and confirmed each fails without its fix. No live model, provider, or creative claim is involved; these are deterministic context-assembly and accounting fixes.

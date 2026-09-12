@@ -46,7 +46,7 @@ class ScriptedAdapter:
             if not w:
                 name, args = "begin_working", dict(question="Who owns a revelation's margin?",
                     intended_product="An exegetical transmission", motivation="Invite an interpretation that may exceed mine.")
-            elif "read_corpus" not in done:
+            elif "read_corpus" not in done and ctx.get("corpus_catalogue"):
                 name, args = "read_corpus", dict(entry_id=ctx["corpus_catalogue"][0]["id"])
             elif not w["data"]["frames"]:
                 name, args = "define_frame", dict(name="The Marginal Synod", entities=["text", "margin", "reader"],
@@ -62,7 +62,9 @@ class ScriptedAdapter:
                             "Write where my revelation fails to reach. If you crown me there, leave one seat empty.\n"
                             "The silence has not yet chosen whose voice to become.\n\n"
                             "*Synthetic demonstration text; no audience encounter is asserted.*\n",
-                    source_refs=[{"id": result("read_corpus")["id"], "version": 1}], parent_refs=[])
+                    # Sources come from the required working record, never from droppable context.
+                    source_refs=[{"id": key, "version": 1} for key in w["data"]["read_sources"][:1]],
+                    parent_refs=[])
             elif w["phase"] == "exploration":
                 name, args = "leave_frame", dict(product_refs=[result("write_artifact")],
                     extraction_note="Preserve the invitation in its native voice; its reception is unknown.")

@@ -240,26 +240,66 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         full = json.loads(compile_context(self.s)[2])
         trimmed = {k: v for k, v in full.items()
                    if k not in ("recent_outcomes", "operator_feedback", "self_account")}
-        self.assertIn("operation_history", trimmed)
+        self.assertIn("read_material", trimmed)
         self.assertIn("assimilation_material", trimmed)
         without = {k: v for k, v in trimmed.items() if k != "assimilation_material"}
         # Exactly the budget the optional catalogue and history fill on their own: the required
         # block has to displace optional material instead of being refused after it.
         self.configure(input_chars=len(encode(without)))
         _, manifest, compiled = compile_context(self.s)
-        self.assertIn("assimilation_material", json.loads(compiled))
-        self.assertIn("operation_history", manifest["omitted"])
+        selected = json.loads(compiled)
+        self.assertIn("assimilation_material", selected)
+        self.assertIn("read_material", manifest["omitted"])
+        # Position is required material and is never traded away for bulk source text.
+        self.assertIn("operation_history", selected)
         # One assimilation block more, and the whole cycle still closes under the tight bound.
         self.configure(input_chars=len(encode(trimmed)))
         _, manifest, compiled = compile_context(self.s)
         selected = json.loads(compiled)
         self.assertIn("assimilation_material", selected)
         self.assertIn("operation_history", selected)
+        self.assertIn("read_material", selected)
         self.assertIn("recent_outcomes", manifest["omitted"])
         self.r.adapter = ScriptedAdapter()
         self.r.command("run")
         self.assertEqual(await self.r.step(), "applied")
         self.assertTrue(self.s.working()["data"]["assimilated"])
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_read_results_carry_no_content_and_material_is_deduplicated(self):
+        text = "corpus-marker-4a2f\n" + "the margin holds an unclaimed throne. " * 700
+        big = self.s.import_corpus("large fixture", text)
+        await self.steps(2)  # begin_working, then the fixture reads the first catalogue entry
+        for _ in range(3):
+            self.assertEqual(await self.propose("read_corpus", entry_id=big), "applied")
+            result = json.loads(self.last_operation()["result"])
+            self.assertNotIn("content", result)
+            self.assertEqual(result["chars"], len(text))
+            self.assertEqual(result["hash"], self.s.one("SELECT hash FROM corpus WHERE id=?", (big,))["hash"])
+        # Three reads of one entry cost one copy of its text, in history and in compiled context.
+        compiled = compile_context(self.s)[2]
+        self.assertEqual(compiled.count("corpus-marker-4a2f"), 1)
+        body = json.loads(compiled)
+        self.assertEqual([r["id"] for r in body["read_material"]], [self.source, big])
+        self.assertLess(len(encode(body["operation_history"])), len(text))
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_tight_budget_drops_material_without_losing_progress(self):
+        big = self.s.import_corpus("large fixture", "the margin holds an unclaimed throne. " * 700)
+        await self.steps(1)
+        self.assertEqual(await self.propose("read_corpus", entry_id=big), "applied")
+        body = json.loads(compile_context(self.s)[2])
+        # A budget with no room for the bulk source text the demon has already read.
+        self.configure(input_chars=len(encode({k: v for k, v in body.items() if k != "read_material"})))
+        self.assertIn("read_material", compile_context(self.s)[1]["omitted"])
+        self.r.adapter = ScriptedAdapter()
+        await self.steps(4)
+        names = [json.loads(o["proposal"])["operation"]["name"]
+                 for o in self.s.rows("SELECT proposal FROM operations WHERE status='committed' ORDER BY rowid")]
+        # Dropping the material costs no position: nothing is re-read and the frame cycle advances.
+        self.assertEqual(names, ["begin_working", "read_corpus", "define_frame", "enter_frame",
+                                 "write_artifact", "leave_frame"])
+        self.assertEqual(self.s.working()["phase"], "examination")
         self.assertEqual(self.s.verify(), [])
 
     async def test_durable_allocation_exhaustion(self):

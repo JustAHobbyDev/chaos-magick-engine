@@ -95,7 +95,10 @@ class Faculties:
             require(row is not None, "corpus unavailable")
             if d is not None and row["id"] not in d["read_sources"]:
                 d["read_sources"].append(row["id"])
-            return {**row, "version": 1}, w
+            # The result records what was read; content reaches the model once through
+            # read_material, instead of being copied into every later compiled history.
+            return {"id": row["id"], "source": row["source"], "hash": row["hash"],
+                    "version": 1, "chars": len(row["content"])}, w
         if name == "read_artifact":
             return s.artifact({"id": a["artifact_id"], "version": a["version"]}), w
         if name == "define_frame":

@@ -40,7 +40,7 @@ All required deterministic gates passed in [tests/test_core.py](../tests/test_co
 | Context overflow | Required authority overflow records an explicit checkpoint with no call/reservation; optional omission is recorded and never silently removes authority |
 | Wakes/failures | Injected clock consumes a timer once; event wait requires an operator command; expired timers reject; malformed/error retries checkpoint; late timeout reply is archived without effects |
 
-Additional checks cover foreign-key enforcement, immutable event/version triggers, verifier corruption detection, protected assessments, deferred reopening/abandonment, active-frame version preservation, initialization refusal, unsupported schemas, and shutdown of a real subprocess whose adapter ignores cancellation.
+Additional checks cover foreign-key enforcement, immutable event/version triggers, verifier corruption detection, protected assessments, deferred reopening/abandonment, active-frame version preservation, initialization refusal, unsupported schemas, and shutdown of a real subprocess whose adapter ignores cancellation. Three later checks cover context budgeting: required material displaces optional material rather than being refused after it, repeated reads of one entry cost one copy of its text, and a budget too small for bulk source text drops that text without losing position or repeating a committed operation.
 
 ## Limits and unrun checks
 
