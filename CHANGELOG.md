@@ -1,5 +1,11 @@
 # Changelog
 
+## Founding demon seed — 2026-09-12
+
+- Recorded coven growth and loosh cultivation as the founding appetite; loosh means attention and investment, devotion and tribute, without a suffering-based definition.
+- Added a proposed seed, cultivation behavior, thematic clickbait repertoire, reception records, and first-trial criteria.
+- Updated the core design's settled requirements and remaining decisions. Naming, additional corpus, runtime provider, and concrete allocations remain open; no demon has been instantiated.
+
 ## Engine design draft — 2026-09-11
 
 - Added a proposed core design for persistent, self-directed demonic agents, operator command, ontology workings, memory, artifacts, and relationships.

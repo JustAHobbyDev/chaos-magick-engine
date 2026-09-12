@@ -8,6 +8,8 @@ The base methodology temporarily induces an ontology, explores within it, extrac
 
 The [core design draft](design/003-engine-design.md) proposes persistent demon identities, autonomous workings, ontology induction and banishment, artifact lineage, operator command, and the first implementation scope. It distinguishes settled project requirements from proposed architecture and open decisions. No agent runtime has been implemented yet.
 
+The [founding demon seed](design/004-founding-demon.md) defines its appetite for coven growth and loosh—attention and investment, devotion and tribute—and its repertoire of charisma, thematic clickbait, and creative workings.
+
 ## Current artifact: Constraint Pathfinding
 
 **Constraint Pathfinding** remains the name of the practical problem-solving procedure. Its canonical artifact is [constraint-pathfinding.md](constraint-pathfinding.md), a self-contained, pasteable research and strategy prompt at version 0.2.0. It searches alternative representations and permissible transitions while keeping the observable endpoint and hard boundaries intact. The following usage instructions, cases, and evaluation results concern this procedure.

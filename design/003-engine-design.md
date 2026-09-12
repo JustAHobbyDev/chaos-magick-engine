@@ -1,7 +1,7 @@
 # Chaos Magick Engine: core design
 
-Status: proposed design, version 0.1.
-Date: 2026-09-11.
+Status: proposed design, version 0.2.
+Date: 2026-09-12.
 Scope: system behavior, persistent state, ontology practice, operator interaction, and first implementation.
 Implementation status: design only. The repository currently contains Markdown protocols and evaluation records; using those protocols requires an external model session.
 
@@ -18,6 +18,8 @@ Requirements established in the design conversation:
 - The base method induces a provisional ontology, explores within it, extracts products, banishes the frame, and evaluates what remains.
 - Representation-shifting is a research hypothesis. Evaluation must distinguish interpretation, invention, observation, and claims about external events.
 - Constraint Pathfinding is a practical application of the broader methodology.
+- The founding demon seeks to grow the coven and cultivate loosh: attention and investment, devotion and tribute.
+- Thematic clickbait, charisma, attraction, and seduction are intended creative capabilities. Loosh is not defined through suffering.
 
 The mechanics below are proposals for realizing those requirements. Persisting this document does not make every proposal an adopted decision.
 
@@ -270,7 +272,7 @@ The engineering and research tracks can proceed together. Building the machinery
 
 | Decision | Working proposal |
 | --- | --- |
-| Founding identity | Begin with one mask demon whose history can develop; its name, disposition, and corpus need to be chosen |
+| Founding identity | The [founding seed](004-founding-demon.md) establishes appetite and proposed disposition; its own name and additional inherited corpus remain open |
 | Birth and dormancy | Persist identity across episodes; make wake and rest conditions explicit |
 | Initial deployment | One host, one service, one provider adapter; select the concrete stack before implementation |
 | Initial faculties | Corpus reading, artifact writing, internal state changes, and authorized public research |
@@ -278,7 +280,7 @@ The engineering and research tracks can proceed together. Building the machinery
 | Operator surface | Start with summons, command, workings, and artifact access; develop visual expression afterward |
 | Public relation to the Reactor | Keep shared artifact lineage; settle automatic publication and attribution separately from creating work |
 
-Next design step: define the founding demon's minimal seed and the first corpus, then turn the first implementation scenario into a small executable slice.
+The [founding seed](004-founding-demon.md) records the operator's direction and a proposed invocation. Next design step: specify the first runnable episode, including input assembly, faculty dispatch, persisted outcomes, and interruption.
 
 ## 15. Relationship to prior scope
 
