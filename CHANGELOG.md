@@ -1,5 +1,13 @@
 # Changelog
 
+## Context delivery and budgeting — 2026-09-12
+
+- Bounded artifact titles and frame names to 200-character labels. A 12000-character title repeated in compact read results could overflow required history and stall the demon; stored legacy titles are truncated in projections.
+- Made operation history shrink to fit rather than fail. The engine generates the block, so it drops the oldest entries first, always keeps the most recent operation, and records the dropped count. Required overflow of history is no longer reachable through accumulated compact metadata.
+- Admitted read material one item at a time, most recently read first. Previously the block was all-or-nothing, so a fourth large read committed successfully while delivering nothing and every earlier text disappeared with it.
+- Added a required `omitted` block at the end of every demon request listing withheld blocks and read items with ids, versions, and sizes. Omissions were previously recorded only in the stored manifest, which the model never sees. Re-reading a withheld item makes it the most recent and delivers it.
+- Added four acceptance tests for delivery, explicit non-delivery, retrieval after eviction, and recovery from oversized required metadata; updated five assertions to the newest-first order and structured withheld records. 42 tests, the offline demo, and the verifier pass.
+
 ## Artifact read context fix — 2026-09-12
 
 - Made `read_artifact` results compact version references with title, kind, hash, and character count. Artifact content and provenance no longer accumulate in required operation history or read events.

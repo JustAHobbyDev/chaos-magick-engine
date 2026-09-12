@@ -26,6 +26,12 @@ def string(value):
         raise Invalid("text must be valid UTF-8") from None
 
 
+def label(value):
+    """Titles and names: short identifiers, never a second content channel."""
+    string(value)
+    require(len(value) <= 200, "expected label of at most 200 characters")
+
+
 def strings(value):
     require(type(value) is list and len(value) <= 100, "expected bounded list")
     for item in value:
@@ -66,10 +72,10 @@ CONTRACTS = {
     "select_working": dict(working_id=string),
     "read_corpus": dict(entry_id=string),
     "read_artifact": dict(artifact_id=string, version=integer),
-    "define_frame": dict(name=string, entities=strings, relations=strings,
+    "define_frame": dict(name=label, entities=strings, relations=strings,
                          assumptions=strings, moves=strings, invocation=string),
     "enter_frame": dict(frame_id=string, version=integer),
-    "write_artifact": dict(title=string, kind=string, content=string,
+    "write_artifact": dict(title=label, kind=string, content=string,
                            source_refs=references, parent_refs=references),
     "revise_artifact": dict(artifact_id=string, expected_version=integer,
                             content=string, change_note=string),

@@ -59,6 +59,11 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
     def last_operation(self):
         return self.s.one("SELECT * FROM operations ORDER BY rowid DESC LIMIT 1")
 
+    @staticmethod
+    def withheld(manifest):
+        return [item["id"] for entry in manifest["omitted"] if isinstance(entry, dict)
+                for item in entry.get("read_material_withheld", [])]
+
     async def write_theory(self, content):
         self.assertEqual(await self.propose("write_artifact", title="Test theory", kind="theory",
                                            content=content, source_refs=[], parent_refs=[]), "applied")
@@ -264,7 +269,7 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         _, manifest, compiled = compile_context(self.s)
         selected = json.loads(compiled)
         self.assertIn("assimilation_material", selected)
-        self.assertIn("read_material", manifest["omitted"])
+        self.assertTrue(self.withheld(manifest))
         # Position is required material and is never traded away for bulk source text.
         self.assertIn("operation_history", selected)
         # One assimilation block more, and the whole cycle still closes under the tight bound.
@@ -295,7 +300,7 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         compiled = compile_context(self.s)[2]
         self.assertEqual(compiled.count("corpus-marker-4a2f"), 1)
         body = json.loads(compiled)
-        self.assertEqual([r["id"] for r in body["read_material"]], [self.source, big])
+        self.assertEqual([r["id"] for r in body["read_material"]], [big, self.source])  # most recent read first
         self.assertLess(len(encode(body["operation_history"])), len(text))
         self.assertEqual(self.s.verify(), [])
 
@@ -306,7 +311,7 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         body = json.loads(compile_context(self.s)[2])
         # A budget with no room for the bulk source text the demon has already read.
         self.configure(input_chars=len(encode({k: v for k, v in body.items() if k != "read_material"})))
-        self.assertIn("read_material", compile_context(self.s)[1]["omitted"])
+        self.assertEqual(self.withheld(compile_context(self.s)[1]), [big])
         self.r.adapter = ScriptedAdapter()
         await self.steps(4)
         names = [json.loads(o["proposal"])["operation"]["name"]
@@ -338,7 +343,7 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         # Removing optional material must leave a compilable position and a usable next step.
         self.configure(input_chars=len(encode({k: v for k, v in body.items() if k != "read_material"})))
         _, manifest, compiled = compile_context(self.s)
-        self.assertIn("read_material", manifest["omitted"])
+        self.assertEqual(self.withheld(manifest), [ref["id"]])
         self.assertNotIn({**ref, "hash": result["hash"]}, manifest["sources"])
         self.assertIn("operation_history", json.loads(compiled))
         self.assertEqual(await self.propose("read_artifact", artifact_id=ref["id"], version=1), "applied")
@@ -371,8 +376,8 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(compiled.count("artifact-v2-marker"), 1)
         self.assertNotIn("unread-v3-marker", compiled)
         material = json.loads(compiled)["read_material"]
-        self.assertEqual([(r["id"], r["version"]) for r in material if r["id"] == first["id"]],
-                         [(first["id"], 1), (first["id"], 2)])
+        self.assertCountEqual([(r["id"], r["version"]) for r in material if r["id"] == first["id"]],
+                              [(first["id"], 1), (first["id"], 2)])
         for ref in (first, second):
             self.assertIn({**ref, "hash": self.s.artifact(ref)["hash"]}, manifest["sources"])
         self.assertEqual(self.s.verify(), [])
@@ -663,6 +668,86 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         statuses = {row["id"]: row["status"] for row in self.s.rows("SELECT id,status FROM commands WHERE kind='summon'")}
         self.assertEqual(statuses, {first["id"]: "delivered", second["id"]: "delivered"})
         self.assertNotIn("encounter", json.loads(compile_context(self.s)[2]))
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_titles_and_frame_names_are_bounded_labels(self):
+        await self.steps(1)
+        long = "T" * 201
+        self.assertEqual(await self.propose("write_artifact", title=long, kind="theory", content="x",
+                                           source_refs=[], parent_refs=[]), "invalid")
+        self.r.adapter = OutputAdapter("define_frame", dict(name=long, entities=["a"], relations=["b"],
+                                                            assumptions=["c"], moves=["d"], invocation="e"))
+        self.assertEqual(await self.r.step(), "invalid")
+        self.assertEqual(len(self.s.rows("SELECT * FROM artifacts")), 0)
+        self.assertEqual(await self.propose("write_artifact", title="T" * 200, kind="theory", content="x",
+                                           source_refs=[], parent_refs=[]), "applied")
+        self.assertIn("label", json.loads(compile_context(self.s)[2])["authority"]["faculties"]["write_artifact"]["title"])
+
+    async def test_read_material_delivery_is_explicit_and_most_recent_first(self):
+        await self.steps(1)
+        refs = []
+        for i in range(4):
+            self.assertEqual(await self.propose("write_artifact", title=f"A{i}", kind="theory",
+                                               content=f"MARK{i} " + "z" * 10990, source_refs=[], parent_refs=[]), "applied")
+            refs.append(json.loads(self.last_operation()["result"]))
+        for ref in refs:
+            self.assertEqual(await self.propose("read_artifact", artifact_id=ref["id"], version=1), "applied")
+        _, manifest, compiled = compile_context(self.s)
+        body = json.loads(compiled)
+        delivered = [r["id"] for r in body["read_material"]]
+        # The newest read is delivered; what does not fit is withheld and listed for the model.
+        self.assertEqual(delivered[0], refs[3]["id"])
+        self.assertIn("MARK3", compiled)
+        self.assertTrue(self.withheld(manifest))
+        self.assertEqual(set(delivered) | set(self.withheld(manifest)), {r["id"] for r in refs})
+        self.assertEqual(body["omitted"], manifest["omitted"])
+        self.assertIn(refs[0]["id"], self.withheld(manifest))
+        self.assertNotIn("MARK0", compiled)
+        # Re-reading a withheld item makes it the most recent and delivers it.
+        self.assertEqual(await self.propose("read_artifact", artifact_id=refs[0]["id"], version=1), "applied")
+        _, manifest, compiled = compile_context(self.s)
+        self.assertEqual(json.loads(compiled)["read_material"][0]["id"], refs[0]["id"])
+        self.assertIn("MARK0", compiled)
+        self.assertNotIn(refs[0]["id"], self.withheld(manifest))
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_history_shrinks_to_fit_instead_of_failing(self):
+        await self.steps(2)
+        for _ in range(20):
+            self.assertEqual(await self.propose("read_corpus", entry_id=self.source), "applied")
+        body = json.loads(compile_context(self.s)[2])
+        self.assertEqual(len(body["operation_history"]), 22)
+        required = {k: v for k, v in body.items()
+                    if k not in ("operation_history", "read_material", "corpus_catalogue", "recent_outcomes",
+                                 "operator_feedback", "self_account", "omitted")}
+        # Room for the required blocks and a few operations, not for twenty-two.
+        self.configure(input_chars=len(encode(required)) + 3 * len(encode(body["operation_history"][-1])) + 100)
+        _, manifest, compiled = compile_context(self.s)
+        selected = json.loads(compiled)
+        history = selected["operation_history"]
+        self.assertTrue(1 <= len(history) < 22)
+        self.assertEqual(history[-1]["id"], self.last_operation()["id"])
+        dropped = [e for e in manifest["omitted"] if isinstance(e, dict) and "earlier_operations" in e]
+        self.assertEqual(dropped[0]["earlier_operations"], 22 - len(history))
+        self.assertEqual(selected["omitted"], manifest["omitted"])
+        self.assertEqual(await self.propose("read_corpus", entry_id=self.source), "applied")
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_oversized_legacy_metadata_cannot_stall_history(self):
+        await self.steps(1)
+        # A store predating the label bound may hold an artifact with a 12000-character title.
+        with self.s.transaction():
+            ref = self.s.create_artifact("T" * 11000, "theory", "short", self.s.working()["id"],
+                                         {"invocation": self.last_operation()["invocation"], "actor": "legacy"})
+        for _ in range(5):
+            self.assertEqual(await self.propose("read_artifact", artifact_id=ref["id"], version=1), "applied")
+        _, manifest, compiled = compile_context(self.s)
+        self.assertLessEqual(len(compiled), self.s.config.input_chars)
+        for entry in json.loads(compiled)["operation_history"]:
+            if entry["name"] == "read_artifact":
+                self.assertLessEqual(len(entry["result"]["title"]), 200)
+        self.r.command("summon", body="still awake")
+        self.assertEqual(await self.propose("read_artifact", artifact_id=ref["id"], version=1), "applied")
         self.assertEqual(self.s.verify(), [])
 
 

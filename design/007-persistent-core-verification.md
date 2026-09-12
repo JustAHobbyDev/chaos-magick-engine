@@ -9,7 +9,7 @@ Environment: Linux, Python 3.14.7, SQLite 3.51.2. No installation, runtime depen
 | Command | Actual result |
 | --- | --- |
 | `python -m chaos_magick_engine --help` | Exit 0; documented console commands present |
-| `python -m unittest discover -s tests -v` | 34 tests passed, including actual subprocess restart, death at transaction boundaries, cancellation-resistant shutdown, and a console over a state path longer than the Unix socket limit |
+| `python -m unittest discover -s tests -v` | 42 tests passed, including actual subprocess restart, death at transaction boundaries, cancellation-resistant shutdown, and a console over a state path longer than the Unix socket limit |
 | `python -m chaos_magick_engine demo --state-dir .runtime/acceptance` | Exit 0; real working cycle, subprocess restart, socket interruption, and four exported artifact versions |
 | `python -m chaos_magick_engine --state-dir .runtime/acceptance verify` | Exit 0; `{"issues": []}` |
 | `git diff --check` | Exit 0; no whitespace errors |
@@ -43,6 +43,8 @@ All required deterministic gates passed in [tests/test_core.py](../tests/test_co
 Additional checks cover foreign-key enforcement, immutable event/version triggers, verifier corruption detection, protected assessments, deferred reopening/abandonment, active-frame version preservation, initialization refusal, unsupported schemas, and shutdown of a real subprocess whose adapter ignores cancellation. Three later checks cover context budgeting: required material displaces optional material rather than being refused after it, repeated reads of one entry cost one copy of its text, and a budget too small for bulk source text drops that text without losing position or repeating a committed operation.
 
 Six review checks cover defects found by a final review of the implementation: an oversized timer value is a validation rejection rather than an engine fault; a fault while applying a returned reply at startup is recorded as a failed operation and the next startup succeeds; an examination whose declared material cannot fit fails explicitly and returns the working to orientation, where the demon can defer it; `run` and `restore` keep a persisted wait condition while a summons ends it; a summons is a required encounter that stays owed through a superseded reply and is marked delivered by the committing proposal; and inspect and shutdown work through the console when the state directory path exceeds the Unix socket limit.
+
+Four context-delivery checks follow a second review of artifact reads: titles and frame names above 200 characters are rejected; after four reads whose texts exceed the bound, the newest is delivered, the withheld items are listed in the request, and re-reading a withheld item delivers it; operation history shrinks to fit a tight bound while keeping the most recent operation and the dropped count, and the demon proceeds; and a legacy artifact with an 11000-character title, read repeatedly, cannot overflow required history.
 
 ## Limits and unrun checks
 

@@ -31,14 +31,17 @@ def compile_context(s):
     if role == "demon":
         body["response_contract"] = {
             "envelope": {"intent": "brief nonempty text", "operation": {"name": "faculty name", "arguments": "exact listed fields"}},
-            "types": {"string": "1..12000 Unicode characters", "integer": "positive integer, not boolean",
+            "types": {"string": "1..12000 Unicode characters", "label": "1..200 Unicode characters",
+                      "integer": "positive integer, not boolean",
                       "strings": "list of at most 100 strings", "reference": {"id": "existing stable ID", "version": "positive integer"},
                       "references": "list of at most 100 reference objects"},
             "artifact_kinds": sorted(KINDS),
             "frame_content": "For frame write/revision, content is JSON matching define_frame arguments.",
             "wake_condition": [{"kind": "timer", "at": "future finite Unix timestamp"}, {"kind": "event", "event": "operator"}],
             "finish_outcomes": ["completed", "abandoned", "deferred"],
-            "rules": "Reject unknown fields. One operation per invocation. Engine supplies authority and operation IDs."
+            "rules": "Reject unknown fields. One operation per invocation. Engine supplies authority and operation IDs. "
+                     "The omitted block lists context withheld for budget; withheld read material was read but not "
+                     "delivered, and reading it again makes it the most recent and delivers it first."
         }
     manifest = {"units": "Unicode characters, not provider tokens", "identity_id": identity["id"],
                 "revision": identity["revision"], "command_ids": [c["id"] for c in commands],
@@ -105,8 +108,8 @@ def compile_context(s):
         if w and w["data"].get("assessment"):
             ref = w["data"]["assessment"]
             add("assimilation_material", s.artifact(ref), [ref], True)
-        # Position is required. Bound the operation count and keep read payloads out of
-        # history; bulk material must not consume the budget needed to retain progress.
+        # Position is required, but the engine owns this block, so it shrinks to what the budget
+        # leaves rather than failing: the most recent operations always survive.
         committed = s.one("SELECT COUNT(*) n FROM operations WHERE status='committed'")["n"]
         results = s.rows("SELECT id,proposal,result FROM (SELECT rowid rid,id,proposal,result FROM operations "
                          "WHERE status='committed' ORDER BY rowid DESC LIMIT ?) ORDER BY rid", (HISTORY_LIMIT,))
@@ -117,24 +120,60 @@ def compile_context(s):
         for entry in history:
             if entry["name"] == "read_artifact":
                 entry["result"] = artifact_read_result(entry["result"])
-        if committed > len(history):
-            manifest["omitted"].append({"earlier_operations": committed - len(history),
-                                        "reason": "bounded operation history"})
-        add("operation_history", history, [{"operation": r["id"]} for r in results], True)
+        def place_history(count):
+            body["operation_history"] = history[len(history) - count:]
+            manifest["omitted"] = [e for e in manifest["omitted"]
+                                   if not (isinstance(e, dict) and "earlier_operations" in e)]
+            if committed > count:
+                manifest["omitted"].append({"earlier_operations": committed - count, "reason": "bounded operation history"})
+        kept = len(history)
+        place_history(kept)
+        while kept > 1 and len(encode(body)) > s.config.input_chars:
+            kept -= 1
+            place_history(kept)
+        require(len(encode(body)) <= s.config.input_chars, "required context overflow: operation_history")
         # Optional context claims only the budget left after required material is committed.
-        # Each corpus entry and exact artifact version read appears once in this block.
-        read_ids = list(dict.fromkeys((w["data"]["read_sources"] if w else [])
-                                      + [e["result"]["id"] for e in history if e["name"] == "read_corpus"]))
-        material = [row for row in (s.one("SELECT * FROM corpus WHERE id=?", (key,)) for key in read_ids) if row]
-        read_refs = ((w["data"].get("read_artifacts", []) if w else [])
-                     + [e["result"] for e in history if e["name"] == "read_artifact"])
-        artifact_keys = dict.fromkeys((ref["id"], ref["version"]) for ref in read_refs)
-        for artifact_id, version in artifact_keys:
-            row = s.artifact({"id": artifact_id, "version": version})
-            material.append({**artifact_read_result(row), "content": row["content"]})
-        if material:
-            add("read_material", material,
-                [{"id": r["id"], "version": r.get("version", 1), "hash": r["hash"]} for r in material])
+        # Read material is admitted one item at a time, most recently read first, so a new read
+        # displaces old material instead of being lost to it. What is withheld is listed for the model.
+        keys = {}
+        for entry in reversed(history):
+            if entry["name"] == "read_corpus":
+                keys.setdefault(("corpus", entry["result"]["id"]), None)
+            elif entry["name"] == "read_artifact":
+                keys.setdefault(("artifact", entry["result"]["id"], entry["result"]["version"]), None)
+        if w:
+            for ref in reversed(w["data"].get("read_artifacts", [])):
+                keys.setdefault(("artifact", ref["id"], ref["version"]), None)
+            for key in reversed(w["data"]["read_sources"]):
+                keys.setdefault(("corpus", key), None)
+        delivered, withheld = [], []
+        for key in keys:
+            if key[0] == "corpus":
+                row = s.one("SELECT * FROM corpus WHERE id=?", (key[1],))
+                if row is None:
+                    continue
+                item = {"id": row["id"], "version": 1, "source": row["source"], "hash": row["hash"],
+                        "chars": len(row["content"]), "content": row["content"]}
+            else:
+                row = s.artifact({"id": key[1], "version": key[2]})
+                item = {**artifact_read_result(row), "content": row["content"]}
+            body["read_material"] = delivered + [item]
+            if len(encode(body)) > s.config.input_chars:
+                withheld.append(item)
+            else:
+                delivered.append(item)
+
+        def place_material():
+            body["read_material"] = delivered
+            if not delivered:
+                del body["read_material"]
+            manifest["omitted"] = [e for e in manifest["omitted"]
+                                   if not (isinstance(e, dict) and "read_material_withheld" in e)]
+            if withheld:
+                listed = [{k: v for k, v in item.items() if k != "content"} for item in withheld[:20]]
+                manifest["omitted"].append({"read_material_withheld": listed, "withheld_count": len(withheld),
+                                            "reason": "input budget; re-reading an item makes it the most recent"})
+        place_material()
         if w and w["data"].get("assessment"):
             # The products under assessment were written by the demon; their text is optional here.
             refs = w["data"]["products"]
@@ -153,6 +192,29 @@ def compile_context(s):
         if identity["self_account"]:
             ref = json.loads(identity["self_account"])
             add("self_account", s.artifact(ref), [ref])
+        # The model must see what was withheld. This block is required; to make room for it the
+        # most recently admitted optional block goes first, then the oldest history entries.
+        optional = [name for name in ("earlier_encounters", "assimilation_products", "corpus_catalogue",
+                                      "recent_outcomes", "operator_feedback", "self_account") if name in body]
+        while True:
+            body["omitted"] = manifest["omitted"]
+            if len(encode(body)) <= s.config.input_chars:
+                break
+            if optional:
+                name = optional.pop()
+                del body[name]
+                manifest["omitted"].append(name)
+                if name == "earlier_encounters":
+                    manifest["encounter_ids"] = manifest["encounter_ids"][-1:]
+            elif delivered:
+                withheld.insert(0, delivered.pop())  # Bulk material gives way before position does.
+                place_material()
+            else:
+                require(kept > 1, "required context overflow: omitted")
+                kept -= 1
+                place_history(kept)
+        manifest["sources"].extend({"operation": e["id"]} for e in history[len(history) - kept:])
+        manifest["sources"].extend({"id": item["id"], "version": item["version"], "hash": item["hash"]} for item in delivered)
     compiled = encode(body)
     manifest["input_hash"] = digest(compiled)
     manifest["input_chars"] = len(compiled)

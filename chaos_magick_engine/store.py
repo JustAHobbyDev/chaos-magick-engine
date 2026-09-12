@@ -26,7 +26,7 @@ def digest(content):
 
 def artifact_read_result(row):
     """Compact a full artifact row or an already compact read result."""
-    return {**{key: row[key] for key in ("id", "version", "title", "kind", "hash")},
+    return {**{key: row[key] for key in ("id", "version", "kind", "hash")}, "title": row["title"][:200],
             "chars": len(row["content"]) if "content" in row else row["chars"]}
 
 
