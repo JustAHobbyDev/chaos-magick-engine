@@ -1,5 +1,13 @@
 # Changelog
 
+## Artifact read context fix — 2026-09-12
+
+- Made `read_artifact` results compact version references with title, kind, hash, and character count. Artifact content and provenance no longer accumulate in required operation history or read events.
+- Persisted deduplicated artifact read references on workings and added exact versions to optional `read_material` with source-manifest entries. Recent history supplies references for reads without a selected working; older working records remain compatible.
+- Compacted legacy full artifact results during context assembly without modifying stored operations or append-only events, allowing existing history-overflow cases to recover.
+- Added four direct regressions for repeated 12000-character artifact reads and tight budgets, version retention across restart/history eviction, reads without a selected working, and legacy history. Updated the active-frame revision test to check compact results and deduplicated read material. The scripted demo does not exercise `read_artifact`.
+- Verification in the restricted execution environment: all five artifact-focused tests passed; the full suite had 30 passes and eight socket-dependent failures. The unchanged parent had the identical eight failures because Unix sockets are unavailable here. A full suite pass still requires an environment that permits the console sockets.
+
 ## Persistent core implementation handoff — 2026-09-12
 
 - Added a ready-for-implementation Codex handoff against the reviewed first-episode design.

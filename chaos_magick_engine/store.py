@@ -24,6 +24,12 @@ def digest(content):
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
+def artifact_read_result(row):
+    """Compact a full artifact row or an already compact read result."""
+    return {**{key: row[key] for key in ("id", "version", "title", "kind", "hash")},
+            "chars": len(row["content"]) if "content" in row else row["chars"]}
+
+
 SCHEMA = """
 CREATE TABLE identity(id TEXT PRIMARY KEY, name TEXT NOT NULL, seed TEXT NOT NULL,
  seed_source TEXT NOT NULL, seed_hash TEXT NOT NULL, seed_version TEXT NOT NULL,
@@ -246,7 +252,8 @@ class Store:
                 issues.append("invalid phase/frame combination")
             if row["phase"] not in {"orientation", "exploration", "examination", "assimilation", "settled"}:
                 issues.append("unknown working phase")
-            refs = data.get("products", []) + data.get("frames", []) + data.get("final_products", [])
+            refs = (data.get("products", []) + data.get("frames", []) + data.get("final_products", [])
+                    + data.get("read_artifacts", []))
             refs += [data[key] for key in ("assessment", "active_frame") if data.get(key)]
             for segment in data.get("segments", []):
                 refs += segment.get("products", []) + [segment["frame"]]

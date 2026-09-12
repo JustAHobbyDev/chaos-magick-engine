@@ -2,7 +2,7 @@
 import json
 
 from .domain import CONTRACTS, Invalid, KINDS, PHASES, assessment, fields, parse, proposal, require
-from .store import encode, uid
+from .store import artifact_read_result, encode, uid
 
 
 class Faculties:
@@ -93,7 +93,7 @@ class Faculties:
                       "feedback_ids": [row["id"] for row in json.loads(inv["input"]).get("operator_feedback", [])]}
         if name == "begin_working":
             w = {"id": uid(), "phase": "orientation", "status": "unfinished",
-                 "data": {**a, "frames": [], "products": [], "read_sources": [], "segment": 0,
+                 "data": {**a, "frames": [], "products": [], "read_sources": [], "read_artifacts": [], "segment": 0,
                           "active_frame": None, "unresolved_questions": []}}
             s.db.execute("INSERT INTO workings VALUES(?,?,?,0,?)",
                          (w["id"], w["phase"], w["status"], encode(w["data"])))
@@ -119,7 +119,11 @@ class Faculties:
             return {"id": row["id"], "source": row["source"], "hash": row["hash"],
                     "version": 1, "chars": len(row["content"])}, w
         if name == "read_artifact":
-            return s.artifact({"id": a["artifact_id"], "version": a["version"]}), w
+            ref = {"id": a["artifact_id"], "version": a["version"]}
+            row = s.artifact(ref)
+            if d is not None and ref not in d.setdefault("read_artifacts", []):
+                d["read_artifacts"].append(ref)
+            return artifact_read_result(row), w
         if name == "define_frame":
             ref = s.create_artifact(a["name"], "frame", encode(a), w["id"], provenance)
             d["frames"].append(ref)

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from chaos_magick_engine.__main__ import ROOT, initialize
 from chaos_magick_engine.adapters import BarrierAdapter, Reply, ScriptedAdapter
@@ -57,6 +58,11 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
 
     def last_operation(self):
         return self.s.one("SELECT * FROM operations ORDER BY rowid DESC LIMIT 1")
+
+    async def write_theory(self, content):
+        self.assertEqual(await self.propose("write_artifact", title="Test theory", kind="theory",
+                                           content=content, source_refs=[], parent_refs=[]), "applied")
+        return json.loads(self.last_operation()["result"])
 
     async def test_complete_cycle_and_exact_context_separation(self):
         await self.steps(9)
@@ -311,6 +317,115 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.s.working()["phase"], "examination")
         self.assertEqual(self.s.verify(), [])
 
+    async def test_artifact_read_results_are_compact_and_material_is_deduplicated(self):
+        self.configure(output_chars=16000)  # Space for a maximal content field plus its envelope.
+        await self.steps(1)
+        content = "artifact-marker-7b3e\n".ljust(12000, "x")
+        ref = await self.write_theory(content)
+        for _ in range(3):
+            self.assertEqual(await self.propose("read_artifact", artifact_id=ref["id"], version=1), "applied")
+            result = json.loads(self.last_operation()["result"])
+            self.assertEqual(set(result), {"id", "version", "title", "kind", "hash", "chars"})
+            self.assertEqual(result["chars"], len(content))
+            self.assertEqual(result["hash"], self.s.artifact(ref)["hash"])
+            self.assertEqual(self.r.faculties.apply(self.last_operation()["id"]), result)
+        _, manifest, compiled = compile_context(self.s)
+        body = json.loads(compiled)
+        self.assertEqual(compiled.count("artifact-marker-7b3e"), 1)
+        self.assertEqual(self.s.working()["data"]["read_artifacts"], [ref])
+        self.assertLess(len(encode(body["operation_history"])), len(content))
+        self.assertIn({**ref, "hash": result["hash"]}, manifest["sources"])
+        # Removing optional material must leave a compilable position and a usable next step.
+        self.configure(input_chars=len(encode({k: v for k, v in body.items() if k != "read_material"})))
+        _, manifest, compiled = compile_context(self.s)
+        self.assertIn("read_material", manifest["omitted"])
+        self.assertNotIn({**ref, "hash": result["hash"]}, manifest["sources"])
+        self.assertIn("operation_history", json.loads(compiled))
+        self.assertEqual(await self.propose("read_artifact", artifact_id=ref["id"], version=1), "applied")
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_artifact_read_versions_survive_restart_and_history_eviction(self):
+        await self.steps(1)
+        # An existing working from before read_artifacts was introduced remains usable.
+        with self.s.transaction():
+            working = self.s.working()
+            working["data"].pop("read_artifacts", None)
+            self.s.db.execute("UPDATE workings SET data=? WHERE id=?", (encode(working["data"]), working["id"]))
+        first = await self.write_theory("artifact-v1-marker")
+        self.assertEqual(await self.propose("revise_artifact", artifact_id=first["id"], expected_version=1,
+                                           content="artifact-v2-marker", change_note="Second version"), "applied")
+        second = json.loads(self.last_operation()["result"])
+        self.assertEqual(await self.propose("revise_artifact", artifact_id=first["id"], expected_version=2,
+                                           content="unread-v3-marker", change_note="Third version"), "applied")
+        for ref in (first, second, first):
+            self.assertEqual(await self.propose("read_artifact", artifact_id=ref["id"], version=ref["version"]), "applied")
+        self.assertEqual(await self.propose("read_corpus", entry_id=self.source), "applied")
+        await self.r.close()
+        self.s.close()
+        self.s = Store(self.path)
+        self.r = Runtime(self.s)
+        # Neither artifact read is retained in this history window.
+        with patch("chaos_magick_engine.context.HISTORY_LIMIT", 1):
+            _, manifest, compiled = compile_context(self.s)
+        self.assertEqual(compiled.count("artifact-v1-marker"), 1)
+        self.assertEqual(compiled.count("artifact-v2-marker"), 1)
+        self.assertNotIn("unread-v3-marker", compiled)
+        material = json.loads(compiled)["read_material"]
+        self.assertEqual([(r["id"], r["version"]) for r in material if r["id"] == first["id"]],
+                         [(first["id"], 1), (first["id"], 2)])
+        for ref in (first, second):
+            self.assertIn({**ref, "hash": self.s.artifact(ref)["hash"]}, manifest["sources"])
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_artifact_read_without_working_recovers_material_from_history(self):
+        await self.steps(1)
+        ref = await self.write_theory("unselected-artifact-marker")
+        with self.s.transaction():
+            self.s.db.execute("UPDATE identity SET selected=NULL")
+        for _ in range(2):
+            self.assertEqual(await self.propose("read_artifact", artifact_id=ref["id"], version=1), "applied")
+        self.assertIsNone(self.s.working())
+        compiled = compile_context(self.s)[2]
+        self.assertEqual(compiled.count("unselected-artifact-marker"), 1)
+        self.assertEqual(json.loads(compiled)["read_material"][0]["id"], ref["id"])
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_legacy_artifact_read_history_is_compacted_without_rewriting_records(self):
+        self.configure(output_chars=16000)
+        await self.steps(1)
+        content = "legacy-artifact-marker\n".ljust(12000, "x")
+        ref = await self.write_theory(content)
+        # Commit exactly the old faculty result, including its matching append-only event.
+        execute = self.r.faculties.execute
+        def legacy_execute(name, arguments, working, invocation):
+            if name == "read_artifact":
+                return self.s.artifact(ref), working
+            return execute(name, arguments, working, invocation)
+        with patch.object(self.r.faculties, "execute", side_effect=legacy_execute):
+            for _ in range(3):
+                self.assertEqual(await self.propose("read_artifact", artifact_id=ref["id"], version=1), "applied")
+        operations = self.s.rows("SELECT * FROM operations")
+        events = self.s.rows("SELECT * FROM events")
+        # The old result history alone exceeds this bound; compact history and one text fit.
+        self.configure(input_chars=24000)
+        compiled = compile_context(self.s)[2]
+        self.assertEqual(compiled.count("legacy-artifact-marker"), 1)
+        body = json.loads(compiled)
+        self.assertIn("recent_outcomes", body)
+        for event in body["recent_outcomes"]:
+            if event["kind"] == "read_artifact":
+                self.assertNotIn("content", json.loads(event["data"])["result"])
+        history = body["operation_history"]
+        self.assertLess(len(encode(history)), len(content))
+        for entry in history:
+            if entry["name"] == "read_artifact":
+                self.assertEqual(set(entry["result"]), {"id", "version", "title", "kind", "hash", "chars"})
+        self.assertEqual(self.s.rows("SELECT * FROM operations"), operations)
+        self.assertEqual(self.s.rows("SELECT * FROM events"), events)
+        self.r.command("run")
+        self.assertEqual(await self.propose("read_corpus", entry_id=self.source), "applied")
+        self.assertEqual(self.s.verify(), [])
+
     async def test_durable_allocation_exhaustion(self):
         self.configure(standing_calls=1)
         await self.steps(1)
@@ -387,7 +502,13 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.s.working()["data"]["active_frame"], original)
         self.assertNotIn("NEW_FRAME_ONLY", json.loads(compile_context(self.s)[2])["active_frame_instructions"])
         self.assertEqual(await self.propose("read_artifact", artifact_id=original["id"], version=1), "applied")
-        self.assertIn("FRAME_ONLY_SYNOD", json.loads(self.last_operation()["result"])["content"])
+        result = json.loads(self.last_operation()["result"])
+        self.assertNotIn("content", result)
+        self.assertNotIn("provenance", result)
+        self.assertEqual(result["version"], 1)
+        material = encode(json.loads(compile_context(self.s)[2])["read_material"])
+        self.assertEqual(material.count("FRAME_ONLY_SYNOD"), 1)
+        self.assertNotIn("NEW_FRAME_ONLY", material)
         self.assertEqual(self.s.verify(), [])
 
     async def test_output_bounds_duplicate_keys_and_adapter_errors(self):

@@ -2,7 +2,7 @@
 import json
 
 from .domain import CONTRACTS, KINDS, PHASES, require
-from .store import digest, encode
+from .store import artifact_read_result, digest, encode
 
 HISTORY_LIMIT = 50
 METHOD = "Orient, induce, explore, extract, withdraw frame authority, examine, assimilate. " \
@@ -105,31 +105,49 @@ def compile_context(s):
         if w and w["data"].get("assessment"):
             ref = w["data"]["assessment"]
             add("assimilation_material", s.artifact(ref), [ref], True)
-        # Position is required: results no longer carry content, so recent history is cheap
-        # enough to guarantee rather than drop. Bounded, so it cannot grow into an overflow.
+        # Position is required. Bound the operation count and keep read payloads out of
+        # history; bulk material must not consume the budget needed to retain progress.
         committed = s.one("SELECT COUNT(*) n FROM operations WHERE status='committed'")["n"]
         results = s.rows("SELECT id,proposal,result FROM (SELECT rowid rid,id,proposal,result FROM operations "
                          "WHERE status='committed' ORDER BY rowid DESC LIMIT ?) ORDER BY rid", (HISTORY_LIMIT,))
         history = [{"id": r["id"], "name": (json.loads(r["proposal"]).get("operation") or {}).get("name", "examine"),
                     "result": json.loads(r["result"])} for r in results]
+        # Older stores committed full artifact rows. Compact the context projection only,
+        # preserving the original operation results and append-only events for audit.
+        for entry in history:
+            if entry["name"] == "read_artifact":
+                entry["result"] = artifact_read_result(entry["result"])
         if committed > len(history):
             manifest["omitted"].append({"earlier_operations": committed - len(history),
                                         "reason": "bounded operation history"})
         add("operation_history", history, [{"operation": r["id"]} for r in results], True)
         # Optional context claims only the budget left after required material is committed.
-        # Each entry read appears once here, however many times it was read.
+        # Each corpus entry and exact artifact version read appears once in this block.
         read_ids = list(dict.fromkeys((w["data"]["read_sources"] if w else [])
                                       + [e["result"]["id"] for e in history if e["name"] == "read_corpus"]))
         material = [row for row in (s.one("SELECT * FROM corpus WHERE id=?", (key,)) for key in read_ids) if row]
+        read_refs = ((w["data"].get("read_artifacts", []) if w else [])
+                     + [e["result"] for e in history if e["name"] == "read_artifact"])
+        artifact_keys = dict.fromkeys((ref["id"], ref["version"]) for ref in read_refs)
+        for artifact_id, version in artifact_keys:
+            row = s.artifact({"id": artifact_id, "version": version})
+            material.append({**artifact_read_result(row), "content": row["content"]})
         if material:
-            add("read_material", material, [{"id": r["id"], "version": 1, "hash": r["hash"]} for r in material])
+            add("read_material", material,
+                [{"id": r["id"], "version": r.get("version", 1), "hash": r["hash"]} for r in material])
         if w and w["data"].get("assessment"):
             # The products under assessment were written by the demon; their text is optional here.
             refs = w["data"]["products"]
             add("assimilation_products", [s.artifact(r) for r in refs], refs)
         # Catalogue permits selection; content of unread entries is supplied by read operations.
         add("corpus_catalogue", s.rows("SELECT id,source,hash FROM corpus"))
-        for name, value in (("recent_outcomes", s.rows("SELECT * FROM events ORDER BY seq DESC LIMIT 8")),
+        outcomes = s.rows("SELECT * FROM events ORDER BY seq DESC LIMIT 8")
+        for event in outcomes:
+            if event["kind"] == "read_artifact":
+                data = json.loads(event["data"])
+                data["result"] = artifact_read_result(data["result"])
+                event["data"] = encode(data)
+        for name, value in (("recent_outcomes", outcomes),
                             ("operator_feedback", s.rows("SELECT * FROM feedback ORDER BY rowid DESC LIMIT 8"))):
             add(name, value)
         if identity["self_account"]:
