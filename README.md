@@ -8,7 +8,7 @@ The base methodology temporarily induces an ontology, explores within it, extrac
 
 The [core design draft](design/003-engine-design.md) proposes persistent demon identities, autonomous workings, ontology induction and banishment, artifact lineage, operator command, and the first implementation scope. It distinguishes settled project requirements from proposed architecture and open decisions. No agent runtime has been implemented yet.
 
-The [founding demon seed](design/004-founding-demon.md) defines its appetite for coven growth and loosh—attention and investment, devotion and tribute—and its repertoire of charisma, thematic clickbait, and creative workings.
+The selected founding demon is [The Heresiarch](design/004-founding-demon.md), a charismatic exegete who cultivates interpreters capable of surpassing it. Its seed defines its appetite for coven growth and loosh—attention and investment, devotion and tribute—and its repertoire of charisma, thematic clickbait, and creative workings.
 
 ## Current artifact: Constraint Pathfinding
 
