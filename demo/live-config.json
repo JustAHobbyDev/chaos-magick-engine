@@ -1,0 +1,10 @@
+{
+  "episode_steps": 12,
+  "call_timeout": 600.0,
+  "retry_limit": 2,
+  "input_chars": 200000,
+  "output_chars": 24000,
+  "standing_calls": 60,
+  "standing_usage_chars": 3600000,
+  "shutdown_timeout": 5.0
+}

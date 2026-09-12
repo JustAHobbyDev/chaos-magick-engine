@@ -56,6 +56,20 @@ Directions accumulate. Use `direct BODY --scope WORKING_ID` to target an existin
 
 The [example allocation](demo/config.json) is finite and persists across restart: 16 steps per episode, 5-second call timeout, one retry, bounded input/output characters, and 80 standing calls. Exhaustion checkpoints the engine; `init` cannot erase spent allocation. See the [implementation decisions](design/006-persistent-core-implementation.md) for phase rules, context selection, cancellation, resource units, and recovery semantics, and the [verification report](design/007-persistent-core-verification.md) for tested gates and limits.
 
+## Live run
+
+The live adapter calls the Claude Messages API through the official `anthropic` SDK. It is the only part of the engine with a dependency, imported only when selected, so the tests and offline demo stay dependency-free. Install it into a virtual environment and supply a key through a file kept out of version control, or through the SDK's own credential lookup:
+
+```sh
+uv venv .venv && uv pip install --python .venv/bin/python -r requirements-live.txt
+.venv/bin/python -m chaos_magick_engine live-check --key-file .runtime/credentials/anthropic.key
+.venv/bin/python -m chaos_magick_engine --state-dir .runtime/live init --config demo/live-config.json
+.venv/bin/python -m chaos_magick_engine --state-dir .runtime/live import-corpus design/003-engine-design.md --source "core design"
+.venv/bin/python -m chaos_magick_engine --state-dir .runtime/live run --once --adapter claude --key-file .runtime/credentials/anthropic.key
+```
+
+`live-check` makes one small request through the adapter and prints the serving model, request id, and token usage. `run --adapter claude` accepts `--model` (default `claude-opus-5`), `--effort`, `--timeout`, and `--no-fallbacks`. By default a policy decline is re-run server-side on Anthropic's recommended fallback model; the serving model and any fallback are recorded in the invocation metadata, so provenance is kept. The [live configuration](demo/live-config.json) allows a ten-minute call timeout, two retries, and sixty standing calls; it is a development allocation, not a financial commitment. Character accounting is unchanged; provider tokens are recorded as metadata. See the [live run report](design/009-first-live-run.md) for what the first run actually did.
+
 ## Current artifact: Constraint Pathfinding
 
 **Constraint Pathfinding** remains the name of the practical problem-solving procedure. Its canonical artifact is [constraint-pathfinding.md](constraint-pathfinding.md), a self-contained, pasteable research and strategy prompt at version 0.2.0. It searches alternative representations and permissible transitions while keeping the observable endpoint and hard boundaries intact. The following usage instructions, cases, and evaluation results concern this procedure.

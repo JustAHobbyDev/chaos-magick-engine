@@ -241,13 +241,13 @@ class Runtime:
             require(isinstance(reply, Reply), "invalid adapter reply")
             require(type(reply.raw) is str and type(reply.metadata) is dict, "invalid adapter metadata/output")
             raw, metadata, usage = reply.raw, reply.metadata, reply.usage_chars
-            require(usage is None or (type(usage) is int and 0 <= usage <= inv["reservation"]), "invalid usage bound")
+            require(usage is None or (type(usage) is int and usage >= 0), "invalid usage")
             encode(metadata)
         except asyncio.CancelledError:
             error = "cancelled; usage unknown"
         except Exception as exc:
             error = f"adapter failure: {exc}"
-            metadata = {"adapter_error": error}
+            metadata = {**(metadata if type(metadata) is dict else {}), "adapter_error": error}
             usage = None
         stale = inv["epoch"] != s.identity()["epoch"] or s.identity()["lifecycle"] != "active"
         status = "superseded" if stale else "expired" if timed_out else "error" if error else "returned"

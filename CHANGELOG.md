@@ -1,5 +1,22 @@
 # Changelog
 
+## First live run and fixes found by it — 2026-09-12
+
+- Ran five bounded live episodes against `claude-opus-5`: one working completed the whole cycle including a fresh-context examination and assimilation, and a second working began from the recorded next pursuit. Recorded in [design/009](design/009-first-live-run.md). No creative or comparative claim is made.
+- Stated the whole-reply bound in every compiled request for both roles; an honest usage report above the reservation is spent, not rejected, and provider metadata survives error paths.
+- Stated the exact `examined_refs` object shape in the examiner instruction.
+- Raised the live configuration to 200000 input and 24000 output characters; fixture-scale bounds could not hold two products plus their declared sources.
+- Let `leave_frame` name any non-frame artifact of the working, so an examination that could not run can be queued again by re-entering the frame.
+- Added an explicit `outcome` type whose rejection names the three allowed values, and told the model that empty list arguments are still required.
+
+## Live adapter — 2026-09-12
+
+- Added `chaos_magick_engine/live.py`, a Claude Messages API adapter over the official SDK's async client, imported only when `run --adapter claude` or `live-check` is used. Deterministic tests and the offline demo keep no dependency.
+- Added `live-check`, a one-request verification of the request shape that prints serving model, request id, and token usage. Added `--model`, `--effort`, `--timeout`, `--no-fallbacks`, and `--key-file` to `run`.
+- Added a live configuration with a ten-minute call timeout, two retries, twelve steps per episode, and sixty standing calls, plus `requirements-live.txt`.
+- Recorded provider tokens, serving model, request id, stop reason, decline category, and any server-side fallback as invocation metadata. Character accounting is unchanged.
+- Added three offline adapter tests with a fake client covering request shape, usage unit, metadata, refusal handling, provider errors, and key-file reading.
+
 ## Corpus size trial design — 2026-09-12
 
 - Added a proposed, unrun live experiment comparing small, sectioned, and bulk corpora on the same question, with engine measures kept separate from blind operator judgment. No engine behavior changes.

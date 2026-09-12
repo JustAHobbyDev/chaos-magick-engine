@@ -36,8 +36,27 @@ def export(s, directory, artifact_id=None):
     return paths
 
 
+def adapter_for(args):
+    if getattr(args, "adapter", "scripted") != "claude":
+        return None
+    from .live import ClaudeAdapter
+    return ClaudeAdapter(model=args.model, effort=args.effort, fallbacks=not args.no_fallbacks,
+                         timeout=args.timeout, key_file=args.key_file)
+
+
+async def live_check(args):
+    """One small provider call through the same adapter, so the request shape is verified cheaply."""
+    from .adapters import Request
+    adapter = adapter_for(args)
+    request = Request("live-check", 0, encode({"role": "demon", "instructions": "Reply with the JSON object "
+                                               "{\"ok\": true, \"model\": \"<your model name>\"}.",
+                                               "response_contract": {"envelope": {"ok": "boolean", "model": "string"}}}), 200)
+    reply = await adapter.invoke(request)
+    return {"raw": reply.raw, "metadata": reply.metadata, "usage_chars": reply.usage_chars}
+
+
 async def run_async(s, args):
-    runtime = Runtime(s)
+    runtime = Runtime(s, adapter_for(args))
     await runtime.start()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -82,9 +101,17 @@ def main(argv=None):
     p = sub.add_parser("import-corpus")
     p.add_argument("file")
     p.add_argument("--source")
-    p = sub.add_parser("run")
-    p.add_argument("--once", action="store_true")
-    p.add_argument("--steps", type=int)
+    for name in ("run", "live-check"):
+        p = sub.add_parser(name)
+        if name == "run":
+            p.add_argument("--once", action="store_true")
+            p.add_argument("--steps", type=int)
+        p.add_argument("--adapter", choices=("scripted", "claude"), default="scripted" if name == "run" else "claude")
+        p.add_argument("--model", default="claude-opus-5")
+        p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"), default="high")
+        p.add_argument("--no-fallbacks", action="store_true", help="return policy declines instead of re-running on a fallback model")
+        p.add_argument("--timeout", type=float, default=600.0, help="provider request timeout in seconds")
+        p.add_argument("--key-file", help="file holding the API key; otherwise the SDK's own credential lookup applies")
     for name in ("inspect", "suspend", "banish", "restore", "shutdown", "verify"):
         sub.add_parser(name)
     p = sub.add_parser("summon")
@@ -107,6 +134,9 @@ def main(argv=None):
         if args.command == "demo":
             from .demo import demonstration
             print(encode(demonstration(args.demo_state)))
+            return 0
+        if args.command == "live-check":
+            print(encode(bounded_loop(live_check(args))))
             return 0
         if args.command == "init":
             s = initialize(args.state_dir, args.config)
@@ -132,7 +162,7 @@ def main(argv=None):
         else:
             if args.command == "run" and not args.once:
                 try:
-                    result = bounded_loop(send(args.state_dir, "run"))
+                    result = bounded_loop(send(args.state_dir, "run"))  # An active server keeps its own adapter.
                 except (FileNotFoundError, ConnectionRefusedError):
                     pass
                 else:

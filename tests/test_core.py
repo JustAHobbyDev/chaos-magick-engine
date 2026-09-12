@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -749,6 +750,117 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.r.command("summon", body="still awake")
         self.assertEqual(await self.propose("read_artifact", artifact_id=ref["id"], version=1), "applied")
         self.assertEqual(self.s.verify(), [])
+
+
+class FakeBlock:
+    def __init__(self, type, **fields):
+        self.type = type
+        self.__dict__.update(fields)
+
+
+class FakeResponse:
+    def __init__(self, text, stop_reason="end_turn", model="claude-opus-5", stop_details=None):
+        self.content = [FakeBlock("thinking", thinking=""), FakeBlock("text", text=text)]
+        self.stop_reason, self.model, self.stop_details = stop_reason, model, stop_details
+        self.usage = SimpleNamespace(input_tokens=1200, output_tokens=80, cache_creation_input_tokens=0, cache_read_input_tokens=0)
+        self._request_id = "req_test"
+
+
+class FakeClient:
+    """Stands in for anthropic.AsyncAnthropic; records the request and returns a canned response."""
+    def __init__(self, response):
+        self.calls = []
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self.create))
+        self.response = response
+
+    async def create(self, **params):
+        self.calls.append(params)
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
+
+
+class LiveAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="cme-live-")
+        self.path = Path(self.temp.name) / "state"
+        self.s = initialize(self.path, ROOT / "demo/live-config.json")
+        self.s.import_corpus("fixture", (ROOT / "demo/fixtures/margin.md").read_text())
+
+    async def asyncTearDown(self):
+        self.s.close()
+        self.temp.cleanup()
+
+    async def test_request_shape_reply_and_usage_unit(self):
+        from chaos_magick_engine.live import ClaudeAdapter, SYSTEM
+        raw = encode({"intent": "begin", "operation": {"name": "begin_working", "arguments": {
+            "question": "Who owns a margin?", "intended_product": "a transmission", "motivation": "test"}}})
+        client = FakeClient(FakeResponse(raw))
+        r = Runtime(self.s, ClaudeAdapter(model="claude-opus-5", effort="medium", client=client))
+        self.assertEqual(await r.step(), "applied")
+        params = client.calls[0]
+        self.assertEqual(params["model"], "claude-opus-5")
+        self.assertEqual(params["system"], SYSTEM)
+        self.assertEqual(params["output_config"], {"effort": "medium"})
+        self.assertEqual(params["fallbacks"], "default")
+        self.assertIn("server-side-fallback-2026-07-01", params["betas"])
+        self.assertEqual(json.loads(params["messages"][0]["content"])["role"], "demon")
+        inv = self.s.one("SELECT * FROM invocations")
+        self.assertEqual(inv["raw"], raw)
+        self.assertEqual(inv["usage"], len(inv["input"]) + len(raw))
+        metadata = json.loads(inv["metadata"])
+        self.assertFalse(metadata["synthetic"])
+        self.assertEqual(metadata["tokens"]["input_tokens"], 1200)
+        self.assertEqual(metadata["request_id"], "req_test")
+        self.assertIsNotNone(self.s.working())
+        self.assertEqual(self.s.verify(), [])
+        await r.close()
+
+    async def test_refusal_and_provider_error_are_explicit_outcomes(self):
+        from chaos_magick_engine.live import ClaudeAdapter
+        refused = FakeResponse("", stop_reason="refusal", stop_details=SimpleNamespace(category="test", explanation="x"))
+        r = Runtime(self.s, ClaudeAdapter(client=FakeClient(refused)))
+        self.assertEqual(await r.step(), "invalid")
+        inv = self.s.one("SELECT * FROM invocations ORDER BY rowid DESC LIMIT 1")
+        self.assertEqual(json.loads(inv["metadata"])["stop_details"]["category"], "test")
+        self.assertIsNone(self.s.working())
+        r.adapter = ClaudeAdapter(client=FakeClient(ConnectionError("synthetic outage")))
+        r.command("run")
+        self.assertEqual(await r.step(), "error")
+        inv = self.s.one("SELECT * FROM invocations ORDER BY rowid DESC LIMIT 1")
+        self.assertEqual(inv["status"], "error")
+        self.assertGreater(inv["reservation"], 0)  # Unknown usage stays reserved.
+        self.assertEqual(self.s.verify(), [])
+        await r.close()
+
+    async def test_overlong_reply_is_rejected_whole_with_metadata_kept(self):
+        from chaos_magick_engine.live import ClaudeAdapter
+        long_raw = encode({"intent": "x", "operation": {"name": "write_artifact", "arguments": {
+            "title": "t", "kind": "theory", "content": "z" * (self.s.config.output_chars + 100), "source_refs": [], "parent_refs": []}}})
+        r = Runtime(self.s, ClaudeAdapter(client=FakeClient(FakeResponse(long_raw))))
+        self.assertEqual(await r.step(), "invalid")
+        inv = self.s.one("SELECT * FROM invocations")
+        self.assertEqual(inv["status"], "invalid")
+        self.assertEqual(inv["usage"], len(inv["input"]) + len(long_raw))  # Honest overrun is spent, not hidden.
+        self.assertEqual(inv["reservation"], 0)
+        self.assertEqual(json.loads(inv["metadata"])["tokens"]["output_tokens"], 80)
+        self.assertIn("output character bound", self.s.one("SELECT error FROM operations")["error"])
+        self.assertIn(str(self.s.config.output_chars), json.loads(compile_context(self.s)[2])["reply_bound"])
+        self.assertEqual(self.s.verify(), [])
+        await r.close()
+
+    async def test_no_fallbacks_and_key_file(self):
+        from chaos_magick_engine.live import ClaudeAdapter, read_key
+        adapter = ClaudeAdapter(fallbacks=False, client=FakeClient(FakeResponse("{}")))
+        params = adapter.build(SimpleNamespace(invocation_id="i", command_epoch=0, compiled="{}", max_output_chars=10))
+        self.assertNotIn("fallbacks", params)
+        self.assertNotIn("betas", params)
+        key = Path(self.temp.name) / "k"
+        key.write_text("sk-test\n")
+        self.assertEqual(read_key(key), "sk-test")
+        key.write_text(" \n")
+        with self.assertRaises(ValueError):
+            read_key(key)
 
 
 class SubprocessTests(unittest.TestCase):

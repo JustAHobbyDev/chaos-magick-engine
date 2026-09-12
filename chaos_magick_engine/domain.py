@@ -32,6 +32,13 @@ def label(value):
     require(len(value) <= 200, "expected label of at most 200 characters")
 
 
+OUTCOMES = ("completed", "abandoned", "deferred")
+
+
+def outcome(value):
+    require(value in OUTCOMES, f"outcome must be exactly one of {'/'.join(OUTCOMES)}; put any account in the intent")
+
+
 def strings(value):
     require(type(value) is list and len(value) <= 100, "expected bounded list")
     for item in value:
@@ -82,7 +89,7 @@ CONTRACTS = {
     "leave_frame": dict(product_refs=references, extraction_note=string),
     "assimilate": dict(assessment_ref=reference, self_account_change=string,
                        doctrine_changes=strings, next_pursuit=string),
-    "finish_working": dict(outcome=string, product_refs=references, unresolved_questions=strings),
+    "finish_working": dict(outcome=outcome, product_refs=references, unresolved_questions=strings),
     "wait": dict(reason=string, wake_condition=wake_condition),
 }
 KINDS = {"exegesis", "theory", "rite", "transmission", "agent_seed", "frame", "research_note"}

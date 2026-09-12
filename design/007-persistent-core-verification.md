@@ -46,6 +46,10 @@ Six review checks cover defects found by a final review of the implementation: a
 
 Four context-delivery checks follow a second review of artifact reads: titles and frame names above 200 characters are rejected; after four reads whose texts exceed the bound, the newest is delivered, the withheld items are listed in the request, and re-reading a withheld item delivers it; operation history shrinks to fit a tight bound while keeping the most recent operation and the dropped count, and the demon proceeds; and a legacy artifact with an 11000-character title, read repeatedly, cannot overflow required history.
 
+## Live run
+
+The deterministic gates above were followed by a live development run against `claude-opus-5`, recorded separately in [design/009](009-first-live-run.md) with the defects it found and the fixes made.
+
 ## Limits and unrun checks
 
 No required deterministic gate failed or remains unrun. Python 3.12 and 3.13 binaries were unavailable; execution was verified on 3.14.7, using interfaces available in 3.12+. Other Unix platforms were not tested. The core requires cooperative asynchronous adapter code; synchronous event-loop blocking would require future process isolation. Character accounting is fixture accounting, not provider tokens or money. The store preserves uncertain usage conservatively and has no budget-replenishment console yet.

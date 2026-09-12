@@ -1,7 +1,7 @@
 """Local effects: validation and completion share one rollback boundary."""
 import json
 
-from .domain import CONTRACTS, Invalid, KINDS, PHASES, assessment, fields, parse, proposal, require
+from .domain import CONTRACTS, Invalid, KINDS, OUTCOMES, PHASES, assessment, fields, parse, proposal, require
 from .store import artifact_read_result, encode, uid
 
 
@@ -175,8 +175,8 @@ class Faculties:
             s.check_refs(a["product_refs"])
             for ref in a["product_refs"]:
                 product = s.artifact(ref)
-                require(product["working"] == w["id"] and product["segment"] == d["segment"]
-                        and product["kind"] != "frame", "product outside active segment")
+                require(product["working"] == w["id"] and product["kind"] != "frame",
+                        "product must be a non-frame artifact of this working")
             d["products"] = a["product_refs"]
             d["extraction_note"] = a["extraction_note"]
             d.setdefault("segments", []).append({"frame": d["active_frame"], "products": a["product_refs"],
@@ -199,7 +199,7 @@ class Faculties:
             d["assimilated"] = True
             return {"self_account": ref, "next_pursuit": a["next_pursuit"]}, w
         if name == "finish_working":
-            require(a["outcome"] in ("completed", "abandoned", "deferred"), "invalid outcome")
+            require(a["outcome"] in OUTCOMES, "invalid outcome")
             s.check_refs(a["product_refs"])
             require(all(s.artifact(r)["working"] == w["id"] for r in a["product_refs"]), "foreign product")
             if a["outcome"] == "completed":
