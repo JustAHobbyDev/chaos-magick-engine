@@ -1,0 +1,515 @@
+import asyncio
+from dataclasses import replace
+import json
+from pathlib import Path
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import unittest
+
+from chaos_magick_engine.__main__ import ROOT, initialize
+from chaos_magick_engine.adapters import BarrierAdapter, Reply, ScriptedAdapter
+from chaos_magick_engine.context import compile_context
+from chaos_magick_engine.demo import demonstration
+from chaos_magick_engine.domain import Config, Invalid
+from chaos_magick_engine.runtime import Runtime, send
+from chaos_magick_engine.store import Store, encode
+
+
+class OutputAdapter:
+    def __init__(self, name=None, arguments=None, raw=None):
+        self.raw = raw if raw is not None else encode({"intent": "test proposal", "operation": {"name": name, "arguments": arguments}})
+
+    async def invoke(self, request):
+        return Reply(self.raw, {"synthetic": True, "adapter": "test"}, len(request.compiled) + len(self.raw))
+
+
+class CoreTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="cme-")
+        self.path = Path(self.temp.name) / "state"
+        self.s = initialize(self.path, ROOT / "demo/config.json")
+        self.source = self.s.import_corpus("synthetic fixture", (ROOT / "demo/fixtures/margin.md").read_text())
+        self.r = Runtime(self.s)
+        self.barriers = []
+
+    async def asyncTearDown(self):
+        for adapter in self.barriers:
+            adapter.release.set()
+        await self.r.close()
+        self.s.close()
+        self.temp.cleanup()
+
+    def configure(self, **kwargs):
+        config = replace(self.s.config, **kwargs)
+        with self.s.transaction():
+            self.s.db.execute("UPDATE identity SET config=?", (encode(config.__dict__),))
+        self.s.config = config
+
+    async def steps(self, count):
+        for _ in range(count):
+            self.assertEqual(await self.r.step(), "applied")
+
+    async def propose(self, name, **arguments):
+        self.r.adapter = OutputAdapter(name, arguments)
+        return await self.r.step()
+
+    def last_operation(self):
+        return self.s.one("SELECT * FROM operations ORDER BY rowid DESC LIMIT 1")
+
+    async def test_complete_cycle_and_exact_context_separation(self):
+        await self.steps(9)
+        w = self.s.working()
+        self.assertEqual(w["phase"], "assimilation")
+        self.assertEqual(w["status"], "waiting")
+        self.assertTrue(w["data"]["assimilated"])
+        self.assertTrue(self.s.identity()["next_pursuit"])
+        examiner = self.s.one("SELECT * FROM invocations WHERE role='examiner'")
+        exploration = self.s.rows("SELECT input FROM invocations WHERE role='demon'")
+        self.assertTrue(any("FRAME_ONLY_SYNOD" in row["input"] for row in exploration))
+        self.assertNotIn("FRAME_ONLY_SYNOD", examiner["input"])
+        self.assertNotIn("operation_history", examiner["input"])
+        self.assertNotIn("active_frame_instructions", examiner["input"])
+        self.assertNotIn("Grow the coven", examiner["input"])
+        self.assertIn("I offer you the margin", examiner["input"])
+        self.assertIn("Who owns the silence", examiner["input"])
+        self.assertIn("do not inhabit", examiner["input"])
+        self.assertEqual(self.s.verify(), [])
+
+    async def blocked(self):
+        adapter = BarrierAdapter()
+        self.barriers.append(adapter)
+        self.r.adapter = adapter
+        await self.r.start()
+        task = asyncio.create_task(self.r.step())
+        await asyncio.wait_for(adapter.started.wait(), 1)
+        return adapter, task
+
+    async def test_suspend_receipt_precedes_late_reply(self):
+        adapter, task = await self.blocked()
+        receipt = await asyncio.wait_for(send(self.path, "suspend"), 1)
+        self.assertEqual(receipt["kind"], "suspend")
+        self.assertFalse(adapter.finished.is_set())
+        self.assertEqual(await self.r.step(), "pending")
+        adapter.release.set()
+        self.assertEqual(await task, "superseded")
+        self.assertIsNone(self.s.working())
+        self.assertEqual(self.last_operation()["status"], "superseded")
+        self.assertIsNotNone(self.s.one("SELECT raw FROM invocations")["raw"])
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_redirect_and_scoped_supersession(self):
+        adapter, task = await self.blocked()
+        receipt = await asyncio.wait_for(send(self.path, "direct", body="Keep the reader's objection unresolved.",
+                                             scope="demon", supersedes=None), 1)
+        self.assertFalse(adapter.finished.is_set())
+        adapter.release.set()
+        self.assertEqual(await task, "superseded")
+        self.r.adapter = ScriptedAdapter()
+        await self.steps(1)
+        self.assertIn("Keep the reader's objection unresolved.",
+                      self.s.one("SELECT input FROM invocations ORDER BY rowid DESC LIMIT 1")["input"])
+        retained = self.r.command("direct", body="Keep the source exact.", scope="demon", supersedes=None)
+        replacement = self.r.command("direct", body="Use a different question.", scope="demon", supersedes=receipt["id"])
+        active = self.s.rows("SELECT id FROM commands WHERE status='active'")
+        self.assertEqual({r["id"] for r in active}, {retained["id"], replacement["id"]})
+        with self.assertRaises(Invalid):
+            self.r.command("direct", body="bad replacement", scope=self.s.working()["id"], supersedes=retained["id"])
+
+    async def test_banish_restore_and_summons_do_not_restore(self):
+        await self.steps(3)
+        identity, working = self.s.identity()["id"], self.s.working()["id"]
+        receipt = self.r.command("direct", body="Retain this command.", scope="demon", supersedes=None)
+        self.r.command("banish")
+        self.r.command("summon", body="This is an encounter, not restoration.")
+        self.assertEqual(await self.r.step(), "dormant")
+        self.assertIsNone(self.s.identity()["wake"])
+        self.r.command("restore")
+        self.assertEqual(self.s.identity()["id"], identity)
+        self.assertEqual(self.s.working()["id"], working)
+        self.assertIn(receipt["id"], compile_context(self.s)[2])
+        await self.steps(1)
+
+    async def test_duplicate_operation_and_crash_boundaries(self):
+        def crash(boundary):
+            if boundary == "before_commit":
+                raise RuntimeError("crash before commit")
+        self.r.faculties.crash_hook = crash
+        with self.assertRaisesRegex(RuntimeError, "before commit"):
+            await self.r.step()
+        op = self.last_operation()
+        self.assertEqual(op["status"], "pending")
+        self.assertIsNone(self.s.working())
+        self.assertFalse(self.s.rows("SELECT * FROM events WHERE operation_id=?", (op["id"],)))
+        self.r.faculties.crash_hook = lambda _: None
+        first = self.r.faculties.apply(op["id"])
+        self.assertEqual(self.r.faculties.apply(op["id"]), first)
+        self.assertEqual(len(self.s.rows("SELECT * FROM workings")), 1)
+        await self.steps(3)  # read, frame, enter
+        def after(boundary):
+            if boundary == "after_commit":
+                raise RuntimeError("crash after commit")
+        self.r.faculties.crash_hook = after
+        with self.assertRaisesRegex(RuntimeError, "after commit"):
+            await self.r.step()
+        op = self.last_operation()
+        self.assertEqual(op["status"], "committed")
+        self.r.faculties.crash_hook = lambda _: None
+        self.r.faculties.apply(op["id"])
+        self.assertEqual(len(self.s.rows("SELECT * FROM artifacts WHERE kind='transmission'")), 1)
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_invalid_actions_have_no_partial_mutation(self):
+        await self.steps(1)
+        bad = [
+            ('enter_frame', {"frame_id": "missing", "version": 1}),
+            ('read_corpus', {"entry_id": True}),
+            ('read_artifact', {"artifact_id": "missing", "version": True}),
+            ('begin_working', {"question": "x", "intended_product": "x", "motivation": "x"}),
+            ('write_artifact', {"title": "x", "kind": "theory", "content": "x", "source_refs": [{"id": "missing", "version": 1}], "parent_refs": []}),
+            ('wait', {"reason": "x", "wake_condition": {"kind": "timer", "at": 0}}),
+            ('wait', {"reason": "x", "wake_condition": {"kind": "unknown", "event": "operator"}}),
+            ('write_artifact', {"title": "x", "kind": "theory", "content": "x", "source_refs": [], "parent_refs": [], "actor": "operator"}),
+        ]
+        before = self.s.working()
+        for name, args in bad:
+            with self.subTest(name=name, args=args):
+                self.assertEqual(await self.propose(name, **args), "invalid")
+                self.assertEqual(self.s.working(), before)
+                self.assertEqual(len(self.s.rows("SELECT * FROM artifacts")), 0)
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_revise_versions_and_feedback_lineage(self):
+        await self.steps(5)
+        product = json.loads(self.last_operation()["result"])
+        original = self.s.artifact(product)["content"]
+        feedback = self.r.command("feedback", artifact_ref=product, body="Actual test-operator input: this invitation feels too certain.")
+        self.assertEqual(await self.propose("revise_artifact", artifact_id=product["id"], expected_version=1,
+                                           content="A separate interpretation of the operator's objection.", change_note="Respond to feedback."), "applied")
+        self.assertEqual(self.s.artifact(product)["content"], original)
+        self.assertIn(feedback["id"], json.loads(self.s.artifact({"id": product["id"], "version": 2})["provenance"])["feedback_ids"])
+        self.assertEqual(self.s.one("SELECT * FROM feedback")["version"], 1)
+        self.assertEqual(self.s.one("SELECT * FROM links WHERE relation='derives_from'")["target_version"], 1)
+        self.assertEqual(await self.propose("revise_artifact", artifact_id=product["id"], expected_version=1,
+                                           content="bad stale version", change_note="stale"), "invalid")
+        self.assertEqual(len(self.s.rows("SELECT * FROM versions WHERE artifact_id=?", (product["id"],))), 2)
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_finish_defer_select_abandon_and_completion(self):
+        await self.steps(5)
+        product = json.loads(self.last_operation()["result"])
+        working_id = self.s.working()["id"]
+        self.assertEqual(await self.propose("finish_working", outcome="completed", product_refs=[product], unresolved_questions=[]), "invalid")
+        self.assertEqual(await self.propose("finish_working", outcome="deferred", product_refs=[product], unresolved_questions=["Who replies?"]), "applied")
+        self.assertIsNone(self.s.working()["data"]["active_frame"])
+        self.assertEqual(self.s.working()["status"], "deferred")
+        self.assertEqual(await self.propose("select_working", working_id=working_id), "applied")
+        self.assertEqual(self.s.working()["phase"], "orientation")
+        self.assertEqual(self.s.working()["data"]["unresolved_questions"], ["Who replies?"])
+        self.assertEqual(await self.propose("finish_working", outcome="abandoned", product_refs=[product], unresolved_questions=[]), "applied")
+        self.assertEqual(await self.propose("select_working", working_id=working_id), "invalid")
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_settle_completed_cycle(self):
+        await self.steps(8)
+        products = self.s.working()["data"]["products"]
+        self.assertEqual(await self.propose("finish_working", outcome="completed", product_refs=products, unresolved_questions=[]), "applied")
+        self.assertEqual(self.s.working()["status"], "completed")
+
+    async def test_context_overflow_and_omission(self):
+        self.configure(input_chars=100)
+        self.assertIn("required authority context overflow", await self.r.step())
+        self.assertEqual(self.s.one("SELECT * FROM allocation")["calls"], 0)
+        self.configure(input_chars=14000)
+        self.r.command("run")
+        await self.steps(1)
+        for _ in range(3):
+            self.r.command("summon", body="optional encounter " * 500)
+        _, manifest, compiled = compile_context(self.s)
+        self.assertIn("recent_outcomes", manifest["omitted"])
+        self.assertIn("authority", compiled)
+        self.assertLessEqual(len(compiled), 14000)
+
+    async def test_durable_allocation_exhaustion(self):
+        self.configure(standing_calls=1)
+        await self.steps(1)
+        self.assertEqual(await self.r.step(), "allocation_exhausted")
+        spent = self.s.one("SELECT * FROM allocation")
+        await self.r.close()
+        self.s.close()
+        self.s = Store(self.path)
+        self.r = Runtime(self.s)
+        self.r.command("run")
+        self.assertEqual(await self.r.step(), "allocation_exhausted")
+        self.assertEqual(self.s.one("SELECT * FROM allocation"), spent)
+
+    async def test_timer_and_event_wakes_use_injected_clock(self):
+        now = [100.0]
+        self.s.clock = lambda: now[0]
+        self.assertEqual(await self.propose("wait", reason="later", wake_condition={"kind": "timer", "at": 110.0}), "applied")
+        for _ in range(5):
+            self.assertFalse(self.r.ready())
+        now[0] = 110.0
+        self.assertTrue(self.r.ready())
+        self.assertTrue(self.r.ready())
+        self.assertEqual(len(self.s.rows("SELECT * FROM events WHERE kind='timer_woke'")), 1)
+        self.assertEqual(await self.propose("wait", reason="already expired", wake_condition={"kind": "timer", "at": 109.0}), "invalid")
+        self.assertEqual(await self.propose("wait", reason="encounter", wake_condition={"kind": "event", "event": "operator"}), "applied")
+        self.assertFalse(self.r.ready())
+        self.r.command("summon", body="Wake by event")
+        self.assertTrue(self.r.ready())
+
+    async def test_malformed_and_retries_are_bounded(self):
+        self.r.adapter = OutputAdapter(raw='{ "intent": "broken"')
+        self.assertEqual(await self.r.episode(), "retry_exhausted")
+        self.assertEqual(self.s.one("SELECT * FROM allocation")["calls"], 2)
+        self.assertGreater(self.s.one("SELECT * FROM allocation")["spent"], 0)
+        self.assertFalse(self.r.ready())
+        self.assertEqual(self.last_operation()["status"], "rejected")
+
+    async def test_timeout_counts_uncooperative_call_and_shutdown_is_bounded(self):
+        self.configure(call_timeout=0.01, shutdown_timeout=0.01)
+        adapter, task = await self.blocked()
+        self.assertEqual(await task, "timeout")
+        self.assertFalse(adapter.finished.is_set())
+        self.r.command("run")
+        self.assertEqual(await self.r.step(), "pending")
+        self.assertGreater(self.s.one("SELECT * FROM allocation")["reserved"], 0)
+        await asyncio.wait_for(self.r.close(), 0.3)
+        self.assertEqual(self.s.one("SELECT status FROM invocations")["status"], "unresolved")
+        adapter.release.set()
+        await asyncio.wait_for(adapter.finished.wait(), 1)
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_late_timeout_reply_is_archived_without_effect(self):
+        self.configure(call_timeout=0.01)
+        adapter, task = await self.blocked()
+        self.assertEqual(await task, "timeout")
+        adapter.release.set()
+        await asyncio.wait_for(adapter.finished.wait(), 1)
+        # Await the actual completion callback, not a wall-clock guess.
+        await asyncio.wait_for(self.r.changed.wait(), 1)
+        self.assertIsNone(self.s.working())
+        inv = self.s.one("SELECT * FROM invocations")
+        self.assertEqual(inv["status"], "expired")
+        self.assertIsNotNone(inv["raw"])
+        self.assertEqual(inv["reservation"], 0)
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_frame_revision_preserves_active_version_and_read_artifact(self):
+        await self.steps(4)
+        original = self.s.working()["data"]["active_frame"]
+        frame = json.loads(self.s.artifact(original)["content"])
+        frame["invocation"] = "NEW_FRAME_ONLY: a later ontology"
+        self.assertEqual(await self.propose("revise_artifact", artifact_id=original["id"], expected_version=1,
+                                           content=encode(frame), change_note="A frame for a later segment."), "applied")
+        self.assertEqual(self.s.working()["data"]["active_frame"], original)
+        self.assertNotIn("NEW_FRAME_ONLY", json.loads(compile_context(self.s)[2])["active_frame_instructions"])
+        self.assertEqual(await self.propose("read_artifact", artifact_id=original["id"], version=1), "applied")
+        self.assertIn("FRAME_ONLY_SYNOD", json.loads(self.last_operation()["result"])["content"])
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_output_bounds_duplicate_keys_and_adapter_errors(self):
+        for raw in ('{"intent":"a","intent":"b","operation":{}}', 'x' * 12001):
+            self.r.adapter = OutputAdapter(raw=raw)
+            outcome = await self.r.step()
+            self.assertIn(outcome, ("invalid", "error"))
+            self.assertIsNone(self.s.working())
+        class Broken:
+            async def invoke(self, request):
+                raise OSError("synthetic provider unavailable")
+        self.r.adapter = Broken()
+        self.assertEqual(await self.r.episode(), "retry_exhausted")
+        self.assertGreater(self.s.one("SELECT * FROM allocation")["reserved"], 0)
+        self.assertFalse(self.r.ready())
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_foreign_keys_immutability_and_consistency(self):
+        self.assertEqual(self.s.db.execute("PRAGMA foreign_keys").fetchone()[0], 1)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.s.db.execute("INSERT INTO versions VALUES('missing',1,'x','x','{}')")
+        await self.steps(3)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.s.db.execute("UPDATE versions SET content='changed'")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.s.db.execute("DELETE FROM events")
+        self.s.db.execute("UPDATE workings SET phase='exploration'")
+        self.assertIn("invalid phase/frame combination", self.s.verify())
+
+    async def test_invalid_examiner_cannot_dispatch_or_change_state(self):
+        await self.steps(6)
+        working = self.s.working()
+        self.assertEqual(await self.propose("wait", reason="escape", wake_condition={"kind": "event", "event": "operator"}), "invalid")
+        self.assertEqual(self.s.working(), working)
+        self.r.adapter = OutputAdapter(raw=encode({"examined_refs": [], "observations": ["x"], "source_relationship": "x",
+                                                  "claim_status": "speculative", "possible_developments": ["x"], "limits": ["x"]}))
+        self.assertEqual(await self.r.step(), "invalid")
+        self.assertEqual(self.s.working(), working)
+
+    async def test_actual_subprocess_double_writer_rejected(self):
+        result = subprocess.run([sys.executable, "-m", "chaos_magick_engine", "--state-dir", str(self.path), "run", "--once"],
+                                capture_output=True, text=True, cwd=ROOT, timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("another runner", result.stderr)
+        self.assertIsNone(self.s.working())
+        self.assertEqual(self.s.one("SELECT * FROM allocation")["calls"], 0)
+
+
+class SubprocessTests(unittest.TestCase):
+    def test_demo_real_process_restart(self):
+        with tempfile.TemporaryDirectory(prefix="cme-demo-") as temp:
+            path = Path(temp) / "state"
+            result = demonstration(path)
+            self.assertEqual(result["issues"], [])
+            report = json.loads(Path(result["details"]).read_text())
+            self.assertTrue(report["same_identity_and_working_across_subprocesses"])
+            self.assertTrue(report["interruption"]["receipt_before_provider_finished"])
+            self.assertEqual(report["operations"].count("begin_working"), 1)
+            self.assertEqual(report["operations"].count("write_artifact"), 1)
+            self.assertIn("assimilate", report["operations"])
+            self.assertFalse(report["live_model_instantiated"])
+            with self.assertRaises(Invalid):
+                demonstration(path)
+
+    def test_uncertain_process_death_preserves_reservation(self):
+        with tempfile.TemporaryDirectory(prefix="cme-crash-") as temp:
+            path = Path(temp) / "state"
+            s = initialize(path, ROOT / "demo/config.json")
+            identity = s.identity()["id"]
+            s.close()
+            # Kill from inside the provider: invocation and reservation have already committed.
+            program = '''
+import asyncio, os, sys
+from chaos_magick_engine.runtime import Runtime
+from chaos_magick_engine.store import Store
+class Dies:
+    async def invoke(self, request):
+        os._exit(73)
+s = Store(sys.argv[1])
+asyncio.run(Runtime(s, Dies()).step())
+'''
+            result = subprocess.run([sys.executable, "-c", program, str(path)], cwd=ROOT, timeout=5)
+            self.assertEqual(result.returncode, 73)
+            s = Store(path)
+            try:
+                Runtime(s)
+                self.assertEqual(s.identity()["id"], identity)
+                self.assertEqual(s.one("SELECT status FROM invocations")["status"], "uncertain")
+                self.assertEqual(s.one("SELECT status FROM operations")["status"], "uncertain")
+                self.assertGreater(s.one("SELECT * FROM allocation")["reserved"], 0)
+                self.assertEqual(s.one("SELECT * FROM allocation")["calls"], 1)
+                self.assertEqual(s.verify(), [])
+            finally:
+                s.close()
+
+    def test_process_crashes_on_both_local_commit_boundaries(self):
+        for boundary in ("before_commit", "after_commit"):
+            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory(prefix="cme-commit-") as temp:
+                path = Path(temp) / "state"
+                s = initialize(path, ROOT / "demo/config.json")
+                s.import_corpus("fixture", (ROOT / "demo/fixtures/margin.md").read_text())
+                identity = s.identity()["id"]
+                s.close()
+                program = """
+import asyncio, os, sys
+from chaos_magick_engine.runtime import Runtime
+from chaos_magick_engine.store import Store
+s = Store(sys.argv[1])
+r = Runtime(s)
+async def main():
+    for _ in range(4):
+        assert await r.step() == "applied"
+    def crash(boundary):
+        if boundary == sys.argv[2]:
+            os._exit(74)
+    r.faculties.crash_hook = crash
+    await r.step()
+asyncio.run(main())
+"""
+                result = subprocess.run([sys.executable, "-c", program, str(path), boundary], cwd=ROOT, timeout=5)
+                self.assertEqual(result.returncode, 74)
+                s = Store(path)
+                try:
+                    Runtime(s)
+                    self.assertEqual(s.identity()["id"], identity)
+                    products = s.rows("SELECT * FROM artifacts WHERE kind='transmission'")
+                    self.assertEqual(len(products), 1)
+                    op = s.one("SELECT * FROM operations ORDER BY rowid DESC LIMIT 1")
+                    self.assertEqual(op["status"], "committed")
+                    from chaos_magick_engine.faculties import Faculties
+                    Faculties(s).apply(op["id"])
+                    self.assertEqual(len(s.rows("SELECT * FROM versions WHERE artifact_id=?", (products[0]["id"],))), 1)
+                    self.assertEqual(s.one("SELECT * FROM allocation")["calls"], 5)
+                    self.assertEqual(s.verify(), [])
+                finally:
+                    s.close()
+
+    def test_console_shutdown_terminates_cancellation_resistant_process(self):
+        import select
+        with tempfile.TemporaryDirectory(prefix="cme-stop-") as temp:
+            path = Path(temp) / "state"
+            s = initialize(path, ROOT / "demo/config.json")
+            s.close()
+            program = """
+import asyncio, sys
+from types import SimpleNamespace
+import chaos_magick_engine.runtime as module
+from chaos_magick_engine.__main__ import bounded_loop, run_async
+from chaos_magick_engine.store import Store
+class Forever:
+    async def invoke(self, request):
+        print("BLOCKED", flush=True)
+        while True:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                pass
+module.ScriptedAdapter = Forever
+s = Store(sys.argv[1])
+try:
+    bounded_loop(run_async(s, SimpleNamespace(once=False, steps=None)))
+finally:
+    s.close()
+"""
+            child = subprocess.Popen([sys.executable, "-c", program, str(path)], cwd=ROOT,
+                                     text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                readable, _, _ = select.select([child.stdout], [], [], 3)
+                self.assertTrue(readable, "provider barrier not reached")
+                self.assertEqual(child.stdout.readline().strip(), "BLOCKED")
+                command = subprocess.run([sys.executable, "-m", "chaos_magick_engine", "--state-dir", str(path), "shutdown"],
+                                         cwd=ROOT, capture_output=True, text=True, timeout=2)
+                self.assertEqual(command.returncode, 0, command.stderr)
+                _, stderr = child.communicate(timeout=2)
+                self.assertEqual(child.returncode, 0, stderr)
+                s = Store(path)
+                try:
+                    self.assertEqual(s.one("SELECT status FROM invocations")["status"], "unresolved")
+                    self.assertGreater(s.one("SELECT * FROM allocation")["reserved"], 0)
+                    self.assertEqual(s.verify(), [])
+                finally:
+                    s.close()
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                    child.communicate()
+
+    def test_init_refuses_existing_identity_and_unknown_schema(self):
+        with tempfile.TemporaryDirectory(prefix="cme-schema-") as temp:
+            path = Path(temp) / "state"
+            s = initialize(path, ROOT / "demo/config.json")
+            identity = s.identity()["id"]
+            s.close()
+            with self.assertRaisesRegex(Invalid, "already initialized"):
+                initialize(path, ROOT / "demo/config.json")
+            s = Store(path)
+            self.assertEqual(s.identity()["id"], identity)
+            s.db.execute("PRAGMA user_version=99")
+            s.close()
+            with self.assertRaisesRegex(Invalid, "unsupported schema"):
+                Store(path)
+
+
+if __name__ == "__main__":
+    unittest.main()
