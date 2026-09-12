@@ -56,3 +56,11 @@
 - Recorded three in-session baseline outputs, input hashes, current official Upwork research and self-assessment. The sufficient route and impossible endpoint controls behaved as intended; actual Upwork demand and task fit remain untested.
 - No post-baseline prompt revision: identified weaknesses concern missing case evidence and unblinded evaluation, not a missing protocol instruction. No rerun or discarded outcome.
 - Kept the existing workspace directory name `hack-generator`; initialized Git with `main` because no Git worktree existed. Added only the eight specified Markdown artifacts, with all run outputs embedded in the baseline file.
+
+## First persistent core — 2026-09-12
+
+- Implemented the local Python/SQLite Heresiarch core with immutable content versions, source/feedback lineage, append-only events, and atomic idempotent faculties.
+- Added context compilation, strict operation and examiner contracts, all first-cycle operations, finite allocation, persisted waits, and a context-driven synthetic adapter.
+- Added a private Unix-socket console, command-epoch interruption, process-lifetime writer lock, bounded cancellation/shutdown, and crash recovery with conservative reservations.
+- Added an offline demo that actually restarts subprocesses, suppresses a barrier-controlled stale response, exports artifacts, and records execution evidence; added invariant and subprocess tests.
+- Documented setup, supported scope, technical decisions, and verification. Preserved historical prompt/evaluation artifacts. No live model-backed demon or creative efficacy is claimed.

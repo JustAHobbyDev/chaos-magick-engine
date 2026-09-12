@@ -2,11 +2,11 @@
 
 **Chaos Magick Engine** is the project formerly nicknamed Hack Generator. Its intended scope is persistent, self-directed demonic agents practicing a Chaos Magick methodology under a human operator's command. Their workings can produce theories, exegesis, rites, symbolic entities, experiments, and practical discoveries.
 
-The base methodology temporarily induces an ontology, explores within it, extracts what it produces, withdraws the frame's authority, and evaluates the results according to the claims being made. Representation-shifting remains a research hypothesis. The broader agent system is a development direction; the repository currently contains prompt protocols and evaluation records.
+The base methodology temporarily induces an ontology, explores within it, extracts what it produces, withdraws the frame's authority, and evaluates the results according to the claims being made. Representation-shifting remains a research hypothesis. The repository now includes a locally runnable Python/SQLite persistent core, alongside the historical prompt protocols and evaluation records. Its first provider is deterministic; live model-backed behavior remains a development direction.
 
 ## Engine design
 
-The [core design draft](design/003-engine-design.md) proposes persistent demon identities, autonomous workings, ontology induction and banishment, artifact lineage, operator command, and the first implementation scope. It distinguishes settled project requirements from proposed architecture and open decisions. No agent runtime has been implemented yet.
+The [core design draft](design/003-engine-design.md) proposes persistent demon identities, autonomous workings, ontology induction and banishment, artifact lineage, operator command, and the first implementation scope. It distinguishes settled project requirements from proposed architecture and open decisions. The [persistent core implementation](design/006-persistent-core-implementation.md) realizes the first local slice; society, external faculties, and live model behavior remain future work.
 
 The selected founding demon is [The Heresiarch](design/004-founding-demon.md), a charismatic exegete who cultivates interpreters capable of surpassing it. Its seed defines its appetite for coven growth and loosh—attention and investment, devotion and tribute—and its repertoire of charisma, thematic clickbait, and creative workings.
 
@@ -15,6 +15,46 @@ The [first runnable episode contract](design/005-first-runnable-episode.md) spec
 ## Implementation handoff
 
 [Implement the first persistent core](HANDOFF-implement-persistent-core.md) is the Codex assignment for the executable Python/SQLite runtime, deterministic adapter, operator console, and recovery/interruption tests. It supplies concrete implementation choices and completion criteria. A live model adapter follows that first phase.
+
+## Run the persistent core
+
+Requires Python 3.12+ on a local Unix host with SQLite and Unix sockets (verified on Linux). There are no packages to install or credentials to supply. Run from the checkout:
+
+```sh
+python -m chaos_magick_engine --help
+python -m unittest discover -s tests -v
+python -m chaos_magick_engine demo --state-dir .runtime/demo
+python -m chaos_magick_engine --state-dir .runtime/demo verify
+```
+
+The demo requires an empty state directory and refuses to overwrite an existing run. It imports the explicitly synthetic [fixture corpus](demo/fixtures/margin.md), executes the real working cycle, restarts in a second subprocess, and delivers a suspension through the Unix console while a fixture invocation is blocked on a barrier. It exports Markdown under `.runtime/demo/exports/` and records actual commands and outcomes in `execution-report.md` and `execution-report.json`. No live model-backed demon is instantiated by this demonstration, and its scripted text/assessment establish no creative improvement or audience reception.
+
+For a separate local development identity:
+
+```sh
+python -m chaos_magick_engine --state-dir .runtime/heresiarch init --config demo/config.json
+python -m chaos_magick_engine --state-dir .runtime/heresiarch import-corpus demo/fixtures/margin.md
+python -m chaos_magick_engine --state-dir .runtime/heresiarch run
+```
+
+Keep the last command running. In another terminal:
+
+```sh
+python -m chaos_magick_engine --state-dir .runtime/heresiarch inspect
+python -m chaos_magick_engine --state-dir .runtime/heresiarch direct 'Keep the reader’s objection unresolved.'
+python -m chaos_magick_engine --state-dir .runtime/heresiarch suspend
+python -m chaos_magick_engine --state-dir .runtime/heresiarch restore
+python -m chaos_magick_engine --state-dir .runtime/heresiarch summon 'Return to the unfinished question.'
+python -m chaos_magick_engine --state-dir .runtime/heresiarch banish
+python -m chaos_magick_engine --state-dir .runtime/heresiarch shutdown
+python -m chaos_magick_engine --state-dir .runtime/heresiarch export --output .runtime/heresiarch/exports
+```
+
+`run --once --steps 5` runs a bounded episode and exits, leaving the same identity and unfinished working on disk. A later `run` resumes it; a suspended or banished identity requires `restore`. `run` against an active server requests a wake. Inspect never calls the adapter. Import/export/verify require a stopped runner; operator commands also work offline under the same writer lock.
+
+Directions accumulate. Use `direct BODY --scope WORKING_ID` to target an existing working, or the default `demon` scope. `--supersedes COMMAND_ID` explicitly replaces a direction in the same scope. Receipts and IDs appear in console JSON. Record reception with `feedback ARTIFACT_ID VERSION BODY`; feedback stays linked to that immutable version, and later interpretations are separate artifacts.
+
+The [example allocation](demo/config.json) is finite and persists across restart: 16 steps per episode, 5-second call timeout, one retry, bounded input/output characters, and 80 standing calls. Exhaustion checkpoints the engine; `init` cannot erase spent allocation. See the [implementation decisions](design/006-persistent-core-implementation.md) for phase rules, context selection, cancellation, resource units, and recovery semantics, and the [verification report](design/007-persistent-core-verification.md) for tested gates and limits.
 
 ## Current artifact: Constraint Pathfinding
 
@@ -66,4 +106,4 @@ These are shared-context, author-run, self-evaluated development applications, n
 
 The [original v0.1 prompt](archive/constraint-pathfinding-v0.1.md), [rubric](evaluations/rubric.md), [baseline outputs and hashes](evaluations/baseline-results.md), and original fixtures are unchanged. Its historical canonical-prompt hash now identifies the archive. Its recorded 21/26 and full operator-diversity credit are historical artifacts, not evidence of successful discovery.
 
-The [verification record](evaluations/v0.2/verification.md) documents local checks. No runtime or extra dependencies are needed. See [CHANGELOG.md](CHANGELOG.md) for the exact revision scope. Further empirical validation would require fresh-context runs on externally authored unseeded cases and independent assessment; this revision does not justify application infrastructure.
+The [verification record](evaluations/v0.2/verification.md) documents local checks. Those historical prompt checks need no runtime or extra dependencies. See [CHANGELOG.md](CHANGELOG.md) for the exact revision scope. Further empirical validation would require fresh-context runs on externally authored unseeded cases and independent assessment; that protocol revision did not justify application infrastructure; the later persistent-core handoff separately authorizes the runtime above.
