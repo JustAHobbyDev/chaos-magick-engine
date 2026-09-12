@@ -87,6 +87,10 @@ def compile_context(s):
         if w and w["data"]["active_frame"]:
             ref = w["data"]["active_frame"]
             add("active_frame_instructions", s.artifact(ref)["content"], [ref], True)
+        if w and w["data"].get("assessment"):
+            refs = w["data"]["products"] + [w["data"]["assessment"]]
+            add("assimilation_material", [s.artifact(r) for r in refs], refs, True)
+        # Optional context claims only the budget left after required material is committed.
         # Catalogue permits selection; content is supplied by read operations and selected memory.
         add("corpus_catalogue", s.rows("SELECT id,source,hash FROM corpus"))
         results = s.rows("SELECT o.id,o.proposal,o.result FROM operations o WHERE status='committed' ORDER BY rowid")
@@ -99,9 +103,6 @@ def compile_context(s):
         if identity["self_account"]:
             ref = json.loads(identity["self_account"])
             add("self_account", s.artifact(ref), [ref])
-        if w and w["data"].get("assessment"):
-            refs = w["data"]["products"] + [w["data"]["assessment"]]
-            add("assimilation_material", [s.artifact(r) for r in refs], refs, True)
     compiled = encode(body)
     manifest["input_hash"] = digest(compiled)
     manifest["input_chars"] = len(compiled)

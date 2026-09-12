@@ -231,6 +231,37 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("authority", compiled)
         self.assertLessEqual(len(compiled), 14000)
 
+    async def test_required_material_outranks_optional_context(self):
+        await self.steps(7)
+        self.assertEqual(self.s.working()["phase"], "assimilation")
+        # A large read makes optional operation_history dwarf the required assimilation material.
+        big = self.s.import_corpus("large fixture", "the margin holds an unclaimed throne. " * 700)
+        self.assertEqual(await self.propose("read_corpus", entry_id=big), "applied")
+        full = json.loads(compile_context(self.s)[2])
+        trimmed = {k: v for k, v in full.items()
+                   if k not in ("recent_outcomes", "operator_feedback", "self_account")}
+        self.assertIn("operation_history", trimmed)
+        self.assertIn("assimilation_material", trimmed)
+        without = {k: v for k, v in trimmed.items() if k != "assimilation_material"}
+        # Exactly the budget the optional catalogue and history fill on their own: the required
+        # block has to displace optional material instead of being refused after it.
+        self.configure(input_chars=len(encode(without)))
+        _, manifest, compiled = compile_context(self.s)
+        self.assertIn("assimilation_material", json.loads(compiled))
+        self.assertIn("operation_history", manifest["omitted"])
+        # One assimilation block more, and the whole cycle still closes under the tight bound.
+        self.configure(input_chars=len(encode(trimmed)))
+        _, manifest, compiled = compile_context(self.s)
+        selected = json.loads(compiled)
+        self.assertIn("assimilation_material", selected)
+        self.assertIn("operation_history", selected)
+        self.assertIn("recent_outcomes", manifest["omitted"])
+        self.r.adapter = ScriptedAdapter()
+        self.r.command("run")
+        self.assertEqual(await self.r.step(), "applied")
+        self.assertTrue(self.s.working()["data"]["assimilated"])
+        self.assertEqual(self.s.verify(), [])
+
     async def test_durable_allocation_exhaustion(self):
         self.configure(standing_calls=1)
         await self.steps(1)
