@@ -18,50 +18,60 @@ def fields(value, names):
             f"expected exactly fields {sorted(names)}")
 
 
-def string(value):
-    require(type(value) is str and 0 < len(value) <= 12000, "expected nonempty bounded string")
+STRING_LIMIT = 12000  # Operator command bodies; model strings are bounded from the configured reply size.
+ENVELOPE_CHARS = 2000  # Room the JSON envelope and short fields need inside one reply.
+
+
+def string_bound(output_chars):
+    """The largest string a reply may carry: the whole-reply bound less envelope room, so the two never disagree."""
+    return output_chars - ENVELOPE_CHARS
+
+
+def string(value, bound=STRING_LIMIT):
+    require(type(value) is str and value, "expected nonempty string")
+    require(len(value) <= bound, f"string of {len(value)} characters exceeds the {bound}-character bound")
     try:
         value.encode("utf-8")
     except UnicodeEncodeError:
         raise Invalid("text must be valid UTF-8") from None
 
 
-def label(value):
+def label(value, bound=STRING_LIMIT):
     """Titles and names: short identifiers, never a second content channel."""
-    string(value)
+    string(value, bound)
     require(len(value) <= 200, "expected label of at most 200 characters")
 
 
 OUTCOMES = ("completed", "abandoned", "deferred")
 
 
-def outcome(value):
+def outcome(value, bound=None):
     require(value in OUTCOMES, f"outcome must be exactly one of {'/'.join(OUTCOMES)}; put any account in the intent")
 
 
-def strings(value):
+def strings(value, bound=STRING_LIMIT):
     require(type(value) is list and len(value) <= 100, "expected bounded list")
     for item in value:
-        string(item)
+        string(item, bound)
 
 
-def integer(value):
+def integer(value, bound=None):
     require(type(value) is int and 0 < value <= 2**63 - 1, "expected positive 64-bit integer")
 
 
-def reference(value):
+def reference(value, bound=STRING_LIMIT):
     fields(value, ("id", "version"))
-    string(value["id"])
+    string(value["id"], bound)
     integer(value["version"])
 
 
-def references(value):
+def references(value, bound=STRING_LIMIT):
     require(type(value) is list and len(value) <= 100, "expected reference list")
     for item in value:
-        reference(item)
+        reference(item, bound)
 
 
-def wake_condition(value):
+def wake_condition(value, bound=None):
     require(type(value) is dict and value.get("kind") in ("timer", "event"), "unsupported wake condition")
     if value["kind"] == "timer":
         fields(value, ("kind", "at"))
@@ -110,7 +120,8 @@ PHASES = {
 
 
 def parse(raw, limit):
-    require(type(raw) is str and len(raw) <= limit, "output character bound exceeded")
+    require(type(raw) is str, "output character bound exceeded: reply is not text")
+    require(len(raw) <= limit, f"output character bound exceeded: reply of {len(raw)} characters, bound {limit}")
     def pairs(items):
         result = {}
         for key, value in items:
@@ -126,28 +137,40 @@ def parse(raw, limit):
 
 def proposal(raw, limit):
     value = parse(raw, limit)
+    bound = string_bound(limit)
     fields(value, ("intent", "operation"))
-    string(value["intent"])
+    named("intent", string, value["intent"], bound)
     op = value["operation"]
     fields(op, ("name", "arguments"))
-    string(op["name"])
+    string(op["name"], bound)
     require(op["name"] in CONTRACTS, "unknown operation")
     schema = CONTRACTS[op["name"]]
     fields(op["arguments"], schema)
     for key, validator in schema.items():
-        validator(op["arguments"][key])
+        named(key, validator, op["arguments"][key], bound)
     return value
+
+
+def named(key, validator, value, bound):
+    """A rejection names the argument it concerns; the model cannot repair what it cannot locate."""
+    try:
+        validator(value, bound)
+    except Invalid as exc:
+        remedy = ("; shorten it, or write the product as more than one artifact, each within the bound, "
+                  "later parts naming earlier ones in parent_refs") if key == "content" and "exceeds" in str(exc) else ""
+        raise Invalid(f"{key}: {exc}{remedy}") from None
 
 
 def assessment(raw, limit):
     value = parse(raw, limit)
+    bound = string_bound(limit)
     fields(value, ("examined_refs", "observations", "source_relationship", "claim_status",
                    "possible_developments", "limits"))
-    references(value["examined_refs"])
+    named("examined_refs", references, value["examined_refs"], bound)
     for key in ("observations", "possible_developments", "limits"):
-        strings(value[key])
+        named(key, strings, value[key], bound)
         require(bool(value[key]), f"{key} cannot be empty")
-    string(value["source_relationship"])
+    named("source_relationship", string, value["source_relationship"], bound)
     require(value["claim_status"] in ("supported_by_supplied_material", "speculative", "unexamined"),
             "invalid claim status")
     return value
@@ -174,4 +197,5 @@ class Config:
             else:
                 require(type(value) is int and 0 <= value <= 10**9, f"invalid {key}")
                 require(value > 0 or key == "retry_limit", f"{key} must be positive")
+        require(data["output_chars"] > ENVELOPE_CHARS, f"output_chars must exceed the {ENVELOPE_CHARS}-character envelope allowance")
         return cls(**data)

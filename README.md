@@ -58,17 +58,19 @@ The [example allocation](demo/config.json) is finite and persists across restart
 
 ## Live run
 
-The live adapter calls the Claude Messages API through the official `anthropic` SDK. It is the only part of the engine with a dependency, imported only when selected, so the tests and offline demo stay dependency-free. Install it into a virtual environment and supply a key through a file kept out of version control, or through the SDK's own credential lookup:
+The live adapters call the Claude Messages API through the official `anthropic` SDK and the OpenAI Responses API through the official `openai` SDK. They are the only part of the engine with dependencies, imported only when selected, so the tests and offline demo stay dependency-free. Install them into a virtual environment and supply keys through files kept out of version control, or through each SDK's own credential lookup:
 
 ```sh
 uv venv .venv && uv pip install --python .venv/bin/python -r requirements-live.txt
-.venv/bin/python -m chaos_magick_engine live-check --key-file .runtime/credentials/anthropic.key
+.venv/bin/python -m chaos_magick_engine live-check --adapter openai --key-file .runtime/credentials/openai.key
+.venv/bin/python -m chaos_magick_engine live-check --adapter claude --key-file .runtime/credentials/anthropic.key
 .venv/bin/python -m chaos_magick_engine --state-dir .runtime/live init --config demo/live-config.json
 .venv/bin/python -m chaos_magick_engine --state-dir .runtime/live import-corpus design/003-engine-design.md --source "core design"
-.venv/bin/python -m chaos_magick_engine --state-dir .runtime/live run --once --adapter claude --key-file .runtime/credentials/anthropic.key
+.venv/bin/python -m chaos_magick_engine --state-dir .runtime/live run --once --adapter openai --key-file .runtime/credentials/openai.key \
+    --examiner-adapter claude --examiner-key-file .runtime/credentials/anthropic.key
 ```
 
-`live-check` makes one small request through the adapter and prints the serving model, request id, and token usage. `run --adapter claude` accepts `--model` (default `claude-opus-5`), `--effort`, `--timeout`, and `--no-fallbacks`. By default a policy decline is re-run server-side on Anthropic's recommended fallback model; the serving model and any fallback are recorded in the invocation metadata, so provenance is kept. The [live configuration](demo/live-config.json) allows a ten-minute call timeout, two retries, and sixty standing calls; it is a development allocation, not a financial commitment. Character accounting is unchanged; provider tokens are recorded as metadata. See the [live run report](design/009-first-live-run.md) for what the first run actually did, and the [methodology criticisms](design/010-methodology-criticisms.md) it raised against the v0.2 evaluation and against itself.
+`live-check` makes one small request through the adapter and prints the serving model, request id, and token usage; `--role examiner` exercises the examiner's adapter when one is configured separately. `run --adapter openai` uses `gpt-5.6-sol` on the flex service tier by default (`--service-tier`), which is priced at batch rates, may answer slowly, and may refuse capacity; a capacity refusal is re-issued once on the standard tier and recorded unless `--no-fallbacks` is given. `run --adapter claude` uses `claude-opus-5`, and by default a policy decline is re-run server-side on Anthropic's recommended fallback model. Both accept `--model`, `--effort`, `--timeout`, and `--key-file`. `--examiner-adapter`, `--examiner-model`, `--examiner-effort`, and `--examiner-key-file` give the examiner a different provider from the demon; every invocation records which provider and model served it. The [live configuration](demo/live-config.json) allows a fifteen-minute call timeout, two retries, sixty standing calls, and eight million standing characters; it is a development allocation, not a financial commitment. `configure --set standing_usage_chars=N --reason "..."` raises or lowers any limit of an existing identity as a recorded operator event; the ledger is never reset. Character accounting is unchanged; provider tokens are recorded as metadata. See the [live run report](design/009-first-live-run.md) for what the first run actually did, the [methodology criticisms](design/010-methodology-criticisms.md) it raised against the v0.2 evaluation and against itself, the [provider split](design/011-provider-split-and-allocation.md) made in response, and the [second run](design/012-astrology-run.md) on that split.
 
 ## Current artifact: Constraint Pathfinding
 

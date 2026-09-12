@@ -212,7 +212,7 @@ class Runtime:
             s.db.execute("INSERT INTO operations VALUES(?,?,'pending',NULL,NULL,NULL)", (operation_id, invocation_id))
             s.db.execute("UPDATE allocation SET calls=calls+1,reserved=reserved+?", (reserve,))
             s.event("invocation_dispatched", {"id": invocation_id, "operation": operation_id, "reservation": reserve})
-        request = Request(invocation_id, identity["epoch"], compiled, s.config.output_chars)
+        request = Request(invocation_id, identity["epoch"], compiled, s.config.output_chars, role)
         task = asyncio.create_task(self.adapter.invoke(request))
         self.pending, self.pending_id = task, invocation_id
         done, _ = await asyncio.wait({task}, timeout=s.config.call_timeout)

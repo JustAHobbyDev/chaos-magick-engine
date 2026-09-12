@@ -10,8 +10,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from chaos_magick_engine.__main__ import ROOT, initialize
-from chaos_magick_engine.adapters import BarrierAdapter, Reply, ScriptedAdapter
+from chaos_magick_engine.__main__ import ROOT, adapter_for, configure, initialize
+from chaos_magick_engine.adapters import BarrierAdapter, Reply, RoleRouter, ScriptedAdapter
 from chaos_magick_engine.context import compile_context
 from chaos_magick_engine.demo import demonstration
 from chaos_magick_engine.domain import Config, Invalid
@@ -445,6 +445,78 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.r.step(), "allocation_exhausted")
         self.assertEqual(self.s.one("SELECT * FROM allocation"), spent)
 
+    async def test_rejection_names_the_argument_and_the_bound(self):
+        self.configure(output_chars=24000)
+        await self.steps(1)
+        # The string bound follows the configured reply bound: 24000 less the 2000-character envelope allowance.
+        self.assertIn("1..22000 Unicode characters", compile_context(self.s)[2])
+        self.assertEqual(await self.propose("write_artifact", title="t", kind="theory", content="z" * 22001,
+                                           source_refs=[], parent_refs=[]), "invalid")
+        self.assertTrue(self.last_operation()["error"].startswith(
+            "content: string of 22001 characters exceeds the 22000-character bound; shorten it, or write the product as more than one artifact"))
+        self.assertEqual(await self.propose("write_artifact", title="t", kind="theory", content="z" * 22000,
+                                           source_refs=[], parent_refs=[]), "applied")
+        self.configure(output_chars=12000)
+        self.assertIn("1..10000 Unicode characters", compile_context(self.s)[2])
+        self.assertEqual(await self.propose("write_artifact", title="t", kind="theory", content="z" * 10001,
+                                           source_refs=[], parent_refs=[]), "invalid")
+        self.assertIn("exceeds the 10000-character bound", self.last_operation()["error"])
+        with self.assertRaisesRegex(Invalid, "envelope allowance"):
+            Config.from_dict({**self.s.config.__dict__, "output_chars": 2000})
+        self.assertEqual(await self.propose("write_artifact", title="t", kind="theory", content="",
+                                           source_refs=[], parent_refs=[]), "invalid")
+        self.assertEqual(self.last_operation()["error"], "content: expected nonempty string")
+        self.r.adapter = OutputAdapter("define_frame", dict(name="n" * 201, entities=[], relations=[], assumptions=[],
+                                                            moves=[], invocation="x"))
+        self.assertEqual(await self.r.step(), "invalid")
+        self.assertEqual(self.last_operation()["error"], "name: expected label of at most 200 characters")
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_configure_replenishes_allocation_as_a_recorded_operator_act(self):
+        self.configure(standing_calls=1)
+        await self.steps(1)
+        self.assertEqual(await self.r.step(), "allocation_exhausted")
+        with self.assertRaisesRegex(Invalid, "unknown config field"):
+            configure(self.s, ["budget=5"], "typo")
+        with self.assertRaisesRegex(Invalid, "must be positive"):
+            configure(self.s, ["standing_calls=0"], "zero")
+        with self.assertRaisesRegex(Invalid, "nothing to set"):
+            configure(self.s, [], "empty")
+        spent = self.s.one("SELECT * FROM allocation")
+        result = configure(self.s, ["standing_calls=3", "standing_usage_chars=900000"], "development replenishment")
+        self.assertEqual(result["allocation"], spent)  # The ledger is never reset; only the standing figure moves.
+        await self.r.close()
+        self.s.close()
+        self.s = Store(self.path)
+        self.assertEqual((self.s.config.standing_calls, self.s.config.standing_usage_chars), (3, 900000))
+        event = self.s.one("SELECT * FROM events WHERE kind='operator_config'")
+        self.assertEqual(event["actor"], "operator")
+        self.assertEqual(json.loads(event["data"]), {"standing_calls": 3, "standing_usage_chars": 900000,
+                                                     "reason": "development replenishment"})
+        self.r = Runtime(self.s)
+        self.r.command("run")
+        await self.steps(2)
+        self.assertEqual(await self.r.step(), "allocation_exhausted")
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_roles_are_routed_to_separate_providers(self):
+        class Tagged:
+            def __init__(self, tag):
+                self.tag = tag
+            async def invoke(self, request):
+                reply = await ScriptedAdapter().invoke(request)
+                return Reply(reply.raw, {**reply.metadata, "served_by": self.tag, "role": request.role}, reply.usage_chars)
+        self.r.adapter = RoleRouter(Tagged("demon-side"), Tagged("examiner-side"))
+        await self.steps(9)
+        self.assertEqual(self.s.working()["phase"], "assimilation")
+        rows = self.s.rows("SELECT role,metadata FROM invocations")
+        self.assertEqual({row["role"] for row in rows}, {"demon", "examiner"})
+        for row in rows:
+            metadata = json.loads(row["metadata"])
+            self.assertEqual(metadata["served_by"], row["role"] + "-side")
+            self.assertEqual(metadata["role"], row["role"])
+        self.assertEqual(self.s.verify(), [])
+
     async def test_timer_and_event_wakes_use_injected_clock(self):
         now = [100.0]
         self.s.clock = lambda: now[0]
@@ -698,6 +770,7 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("label", json.loads(compile_context(self.s)[2])["authority"]["faculties"]["write_artifact"]["title"])
 
     async def test_read_material_delivery_is_explicit_and_most_recent_first(self):
+        self.configure(output_chars=16000)  # Room for a maximal content field plus its envelope.
         await self.steps(1)
         refs = []
         for i in range(4):
@@ -874,6 +947,135 @@ class LiveAdapterTests(unittest.IsolatedAsyncioTestCase):
         key.write_text(" \n")
         with self.assertRaises(ValueError):
             read_key(key)
+
+
+class FakeOpenAIResponse:
+    def __init__(self, text, refusal=None, service_tier="flex", status="completed", incomplete=None):
+        content = [FakeBlock("output_text", text=text)] if refusal is None else [FakeBlock("refusal", refusal=refusal)]
+        self.output = [FakeBlock("reasoning"), FakeBlock("message", content=content)]
+        self.id, self.model, self.service_tier, self.status = "resp_test", "gpt-5.6-sol", service_tier, status
+        self.incomplete_details = None if incomplete is None else SimpleNamespace(reason=incomplete)
+        self.usage = SimpleNamespace(input_tokens=1500, output_tokens=900,
+                                     input_tokens_details=SimpleNamespace(cached_tokens=1024),
+                                     output_tokens_details=SimpleNamespace(reasoning_tokens=700))
+        self._request_id = "req_openai_test"
+
+
+class RateLimitError(Exception):
+    """Same name as the SDK's exception; the adapter matches by name so the tests need no SDK."""
+
+
+class FakeOpenAIClient:
+    """Stands in for openai.AsyncOpenAI; returns canned responses or exceptions in order."""
+    def __init__(self, *responses):
+        self.calls = []
+        self.responses = list(responses)
+        self.responses_api = SimpleNamespace(create=self.create)
+
+    @property
+    def responses(self):
+        return self.responses_api
+
+    @responses.setter
+    def responses(self, value):
+        self.queue = value
+
+    async def create(self, **params):
+        self.calls.append(params)
+        response = self.queue.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+class OpenAIAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="cme-openai-")
+        self.path = Path(self.temp.name) / "state"
+        self.s = initialize(self.path, ROOT / "demo/live-config.json")
+        self.s.import_corpus("fixture", (ROOT / "demo/fixtures/margin.md").read_text())
+
+    async def asyncTearDown(self):
+        self.s.close()
+        self.temp.cleanup()
+
+    async def test_request_shape_reply_and_usage_unit(self):
+        from chaos_magick_engine.live import OpenAIAdapter, SYSTEM
+        raw = encode({"intent": "begin", "operation": {"name": "begin_working", "arguments": {
+            "question": "Who owns a margin?", "intended_product": "a transmission", "motivation": "test"}}})
+        client = FakeOpenAIClient(FakeOpenAIResponse(raw))
+        r = Runtime(self.s, OpenAIAdapter(effort="xhigh", client=client))
+        self.assertEqual(await r.step(), "applied")
+        params = client.calls[0]
+        self.assertEqual(params["model"], "gpt-5.6-sol")
+        self.assertEqual(params["instructions"], SYSTEM)
+        self.assertEqual(params["reasoning"], {"effort": "xhigh"})
+        self.assertEqual(params["service_tier"], "flex")
+        self.assertFalse(params["store"])
+        self.assertEqual(json.loads(params["input"])["role"], "demon")
+        inv = self.s.one("SELECT * FROM invocations")
+        self.assertEqual(inv["raw"], raw)
+        self.assertEqual(inv["usage"], len(inv["input"]) + len(raw))
+        metadata = json.loads(inv["metadata"])
+        self.assertEqual(metadata["provider"], "openai")
+        self.assertFalse(metadata["synthetic"])
+        self.assertEqual(metadata["tokens"], {"input_tokens": 1500, "output_tokens": 900, "cached_tokens": 1024, "reasoning_tokens": 700})
+        self.assertEqual((metadata["requested_service_tier"], metadata["service_tier"]), ("flex", "flex"))
+        self.assertEqual(metadata["request_id"], "req_openai_test")
+        self.assertEqual(metadata["fallbacks"], [])
+        self.assertIsNotNone(self.s.working())
+        self.assertEqual(self.s.verify(), [])
+        await r.close()
+
+    async def test_refusal_capacity_fallback_and_provider_error(self):
+        from chaos_magick_engine.live import OpenAIAdapter
+        r = Runtime(self.s, OpenAIAdapter(client=FakeOpenAIClient(FakeOpenAIResponse("", refusal="declined"))))
+        self.assertEqual(await r.step(), "invalid")
+        inv = self.s.one("SELECT * FROM invocations ORDER BY rowid DESC LIMIT 1")
+        self.assertEqual(json.loads(inv["metadata"])["stop_details"], {"category": "refusal", "explanation": "declined"})
+        self.assertIsNone(self.s.working())
+        # Flex capacity refused: the same request is re-issued once on the standard tier and recorded.
+        raw = encode({"intent": "begin", "operation": {"name": "begin_working", "arguments": {
+            "question": "Who owns a margin?", "intended_product": "a transmission", "motivation": "test"}}})
+        client = FakeOpenAIClient(RateLimitError("resource_unavailable"), FakeOpenAIResponse(raw, service_tier="default"))
+        r.adapter = OpenAIAdapter(client=client)
+        r.command("run")
+        self.assertEqual(await r.step(), "applied")
+        self.assertEqual([c["service_tier"] for c in client.calls], ["flex", "auto"])
+        metadata = json.loads(self.s.one("SELECT metadata FROM invocations ORDER BY rowid DESC LIMIT 1")["metadata"])
+        self.assertEqual(metadata["fallbacks"][0]["from"], "flex")
+        self.assertEqual(metadata["fallbacks"][0]["to"], "auto")
+        self.assertEqual(metadata["service_tier"], "default")
+        # Without fallbacks a capacity refusal is an explicit provider error with the reservation kept.
+        r.adapter = OpenAIAdapter(fallbacks=False, client=FakeOpenAIClient(RateLimitError("resource_unavailable")))
+        self.assertEqual(await r.step(), "error")
+        inv = self.s.one("SELECT * FROM invocations ORDER BY rowid DESC LIMIT 1")
+        self.assertEqual(inv["status"], "error")
+        self.assertGreater(inv["reservation"], 0)
+        # An incomplete reply is delivered as returned and its reason recorded; the engine judges it.
+        r.adapter = OpenAIAdapter(client=FakeOpenAIClient(FakeOpenAIResponse("{\"intent\": \"cut", incomplete="max_output_tokens")))
+        self.assertEqual(await r.step(), "invalid")
+        metadata = json.loads(self.s.one("SELECT metadata FROM invocations ORDER BY rowid DESC LIMIT 1")["metadata"])
+        self.assertEqual(metadata["incomplete_reason"], "max_output_tokens")
+        self.assertEqual(self.s.verify(), [])
+        await r.close()
+
+    def test_console_builds_a_split_provider_router(self):
+        demon_key, examiner_key = Path(self.temp.name) / "openai.key", Path(self.temp.name) / "anthropic.key"
+        demon_key.write_text("sk-openai-test\n")
+        examiner_key.write_text("sk-ant-test\n")
+        args = SimpleNamespace(adapter="openai", model=None, effort="high", service_tier="flex", no_fallbacks=False,
+                               timeout=None, key_file=str(demon_key), examiner_adapter="claude", examiner_model=None,
+                               examiner_effort=None, examiner_key_file=str(examiner_key))
+        router = adapter_for(args)
+        self.assertIsInstance(router, RoleRouter)
+        self.assertEqual((router.demon.model, router.demon.service_tier, router.demon.effort), ("gpt-5.6-sol", "flex", "high"))
+        self.assertEqual((router.examiner.model, router.examiner.effort), ("claude-opus-5", "high"))
+        self.assertEqual(router.demon.client.api_key, "sk-openai-test")
+        self.assertEqual(router.examiner.client.api_key, "sk-ant-test")
+        # One provider for both roles with no examiner settings is a single adapter, not a router.
+        args.examiner_adapter, args.examiner_key_file = None, None
+        self.assertNotIsInstance(adapter_for(args), RoleRouter)
 
 
 class SubprocessTests(unittest.TestCase):

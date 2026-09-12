@@ -13,6 +13,7 @@ class Request:
     command_epoch: int
     compiled: str
     max_output_chars: int
+    role: str = "demon"
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,21 @@ class Reply:
 
 class Adapter(Protocol):
     async def invoke(self, request: Request) -> Reply: ...
+
+
+class RoleRouter:
+    """Dispatches by the engine-assigned role, so the demon and its examiner can be different providers.
+
+    The router adds nothing to the reply: each provider records its own model and metadata, so the
+    invocation record shows which provider served which role.
+    """
+    def __init__(self, demon, examiner):
+        self.demon = demon
+        self.examiner = examiner
+
+    async def invoke(self, request):
+        adapter = self.examiner if request.role == "examiner" else self.demon
+        return await adapter.invoke(request)
 
 
 class ScriptedAdapter:

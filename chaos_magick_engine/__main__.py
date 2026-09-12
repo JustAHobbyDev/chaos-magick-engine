@@ -6,7 +6,7 @@ from pathlib import Path
 import signal
 import sys
 
-from .domain import Config, Invalid
+from .domain import Config, Invalid, require
 from .runtime import Runtime, send
 from .store import Store, encode
 
@@ -36,21 +36,63 @@ def export(s, directory, artifact_id=None):
     return paths
 
 
+def live_adapter(kind, model, effort, args, key_file):
+    """One provider adapter. Defaults that differ by provider are resolved here, not in argparse."""
+    if kind == "claude":
+        from .live import ClaudeAdapter
+        return ClaudeAdapter(model=model or "claude-opus-5", effort=effort, fallbacks=not args.no_fallbacks,
+                             timeout=args.timeout or 600.0, key_file=key_file)
+    from .live import OpenAIAdapter
+    # Flex processing is documented as slower; its recommended request timeout is fifteen minutes.
+    return OpenAIAdapter(model=model or "gpt-5.6-sol", effort=effort, service_tier=args.service_tier,
+                         fallbacks=not args.no_fallbacks, timeout=args.timeout or 900.0, key_file=key_file)
+
+
+def configure(s, settings, reason):
+    """Raise or lower configured limits, including the standing allocation, as a recorded operator act.
+
+    The allocation ledger itself is never reset; a larger standing figure is the only replenishment.
+    """
+    changes = {}
+    for item in settings:
+        key, sep, value = item.partition("=")
+        require(sep and key in Config.__dataclass_fields__, f"unknown config field: {key}")
+        try:
+            changes[key] = json.loads(value)
+        except ValueError:
+            raise Invalid(f"invalid value for {key}: {value}")
+    require(changes, "nothing to set")
+    config = Config.from_dict({**s.config.__dict__, **changes})
+    with s.transaction():
+        s.db.execute("UPDATE identity SET config=?", (encode(config.__dict__),))
+        s.event("operator_config", {**changes, "reason": reason}, actor="operator")
+    s.config = config
+    return {"config": config.__dict__, "allocation": s.one("SELECT * FROM allocation")}
+
+
 def adapter_for(args):
-    if getattr(args, "adapter", "scripted") != "claude":
+    kind = getattr(args, "adapter", "scripted")
+    if kind == "scripted":
         return None
-    from .live import ClaudeAdapter
-    return ClaudeAdapter(model=args.model, effort=args.effort, fallbacks=not args.no_fallbacks,
-                         timeout=args.timeout, key_file=args.key_file)
+    demon = live_adapter(kind, args.model, args.effort, args, args.key_file)
+    examiner_kind = args.examiner_adapter or kind
+    if examiner_kind == kind and args.examiner_model is None and args.examiner_key_file is None and args.examiner_effort is None:
+        return demon
+    from .adapters import RoleRouter
+    examiner = live_adapter(examiner_kind, args.examiner_model, args.examiner_effort or args.effort, args,
+                            args.examiner_key_file if args.examiner_key_file is not None else
+                            (args.key_file if examiner_kind == kind else None))
+    return RoleRouter(demon, examiner)
 
 
 async def live_check(args):
     """One small provider call through the same adapter, so the request shape is verified cheaply."""
     from .adapters import Request
     adapter = adapter_for(args)
-    request = Request("live-check", 0, encode({"role": "demon", "instructions": "Reply with the JSON object "
+    request = Request("live-check", 0, encode({"role": args.role, "instructions": "Reply with the JSON object "
                                                "{\"ok\": true, \"model\": \"<your model name>\"}.",
-                                               "response_contract": {"envelope": {"ok": "boolean", "model": "string"}}}), 200)
+                                               "response_contract": {"envelope": {"ok": "boolean", "model": "string"}}}),
+                      200, args.role)
     reply = await adapter.invoke(request)
     return {"raw": reply.raw, "metadata": reply.metadata, "usage_chars": reply.usage_chars}
 
@@ -106,12 +148,25 @@ def main(argv=None):
         if name == "run":
             p.add_argument("--once", action="store_true")
             p.add_argument("--steps", type=int)
-        p.add_argument("--adapter", choices=("scripted", "claude"), default="scripted" if name == "run" else "claude")
-        p.add_argument("--model", default="claude-opus-5")
+        else:
+            p.add_argument("--role", choices=("demon", "examiner"), default="demon",
+                           help="which role's adapter to exercise; the examiner's when it is configured separately")
+        p.add_argument("--adapter", choices=("scripted", "claude", "openai"), default="scripted" if name == "run" else "claude",
+                       help="demon provider: claude (Messages API) or openai (Responses API)")
+        p.add_argument("--model", help="demon model; default claude-opus-5 or gpt-5.6-sol by adapter")
         p.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"), default="high")
-        p.add_argument("--no-fallbacks", action="store_true", help="return policy declines instead of re-running on a fallback model")
-        p.add_argument("--timeout", type=float, default=600.0, help="provider request timeout in seconds")
+        p.add_argument("--service-tier", choices=("flex", "auto", "default"), default="flex",
+                       help="openai only: flex is batch-rate processing that may be slow or refuse capacity")
+        p.add_argument("--no-fallbacks", action="store_true",
+                       help="claude: return policy declines instead of re-running on a fallback model; "
+                            "openai: fail instead of re-issuing a capacity-refused flex request on the standard tier")
+        p.add_argument("--timeout", type=float, help="provider request timeout in seconds; default 600 for claude, 900 for openai")
         p.add_argument("--key-file", help="file holding the API key; otherwise the SDK's own credential lookup applies")
+        p.add_argument("--examiner-adapter", choices=("claude", "openai"),
+                       help="examiner provider when it differs from the demon's; invocations record which served")
+        p.add_argument("--examiner-model", help="examiner model; default by examiner adapter")
+        p.add_argument("--examiner-effort", choices=("low", "medium", "high", "xhigh", "max"))
+        p.add_argument("--examiner-key-file", help="examiner key file; defaults to --key-file only for the same provider")
     for name in ("inspect", "suspend", "banish", "restore", "shutdown", "verify"):
         sub.add_parser(name)
     p = sub.add_parser("summon")
@@ -127,6 +182,9 @@ def main(argv=None):
     p = sub.add_parser("export")
     p.add_argument("--output", required=True)
     p.add_argument("--artifact-id")
+    p = sub.add_parser("configure", help="change engine limits or the standing allocation of an existing identity")
+    p.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="a config field, repeatable")
+    p.add_argument("--reason", required=True, help="recorded with the change as an operator event")
     p = sub.add_parser("demo")
     p.add_argument("--state-dir", dest="demo_state", required=True)
     args = parser.parse_args(argv)
@@ -176,6 +234,8 @@ def main(argv=None):
                     if args.steps is not None and args.steps <= 0:
                         raise Invalid("steps must be positive")
                     result = bounded_loop(run_async(s, args))
+                elif args.command == "configure":
+                    result = configure(s, args.set, args.reason)
                 elif args.command == "verify":
                     result = {"issues": s.verify()}
                     if result["issues"]:
