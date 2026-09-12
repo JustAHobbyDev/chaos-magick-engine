@@ -127,6 +127,13 @@ def compile_context(s):
         for entry in history:
             if entry["name"] == "read_artifact":
                 entry["result"] = artifact_read_result(entry["result"])
+            elif entry["name"] in ("write_artifact", "define_frame", "revise_artifact") and "id" in entry["result"]:
+                # A bare reference tells the demon nothing about what it wrote. Describe it beside the
+                # result, not inside it, so the result stays a reference the demon can copy verbatim.
+                row = s.one("SELECT a.title,a.kind,LENGTH(v.content) chars FROM artifacts a JOIN versions v ON v.artifact_id=a.id "
+                            "WHERE a.id=? AND v.version=?", (entry["result"]["id"], entry["result"]["version"]))
+                if row:
+                    entry["wrote"] = {"title": row["title"][:200], "kind": row["kind"], "chars": row["chars"]}
         def place_history(count):
             body["operation_history"] = history[len(history) - count:]
             manifest["omitted"] = [e for e in manifest["omitted"]
@@ -187,6 +194,10 @@ def compile_context(s):
             add("assimilation_products", [s.artifact(r) for r in refs], refs)
         # Catalogue permits selection; content of unread entries is supplied by read operations.
         add("corpus_catalogue", s.rows("SELECT id,source,hash FROM corpus"))
+        if w:
+            # What this working has produced, by title, so the demon need not re-read to remember.
+            add("working_artifacts", s.rows("SELECT a.id,v.version,a.title,a.kind,a.segment,LENGTH(v.content) chars FROM artifacts a "
+                                            "JOIN versions v ON v.artifact_id=a.id WHERE a.working=? ORDER BY a.rowid,v.version", (w["id"],)))
         outcomes = s.rows("SELECT * FROM events ORDER BY seq DESC LIMIT 8")
         for event in outcomes:
             if event["kind"] == "read_artifact":
@@ -201,7 +212,7 @@ def compile_context(s):
             add("self_account", s.artifact(ref), [ref])
         # The model must see what was withheld. This block is required; to make room for it the
         # most recently admitted optional block goes first, then the oldest history entries.
-        optional = [name for name in ("earlier_encounters", "assimilation_products", "corpus_catalogue",
+        optional = [name for name in ("earlier_encounters", "assimilation_products", "corpus_catalogue", "working_artifacts",
                                       "recent_outcomes", "operator_feedback", "self_account") if name in body]
         while True:
             body["omitted"] = manifest["omitted"]

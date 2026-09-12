@@ -671,6 +671,19 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("encounter", json.loads(compile_context(self.s)[2]))
         self.assertEqual(self.s.verify(), [])
 
+    async def test_demon_can_see_what_it_wrote(self):
+        await self.steps(5)  # begin, read, define, enter, write
+        body = json.loads(compile_context(self.s)[2])
+        written = [e for e in body["operation_history"] if e["name"] in ("write_artifact", "define_frame")]
+        self.assertEqual([e["wrote"]["title"] for e in written], ["The Marginal Synod", "The Throne Left Blank"])
+        self.assertEqual(written[1]["wrote"]["kind"], "transmission")
+        self.assertGreater(written[1]["wrote"]["chars"], 0)
+        self.assertEqual(set(written[1]["result"]), {"id", "version"})
+        self.assertEqual([(a["title"], a["kind"]) for a in body["working_artifacts"]],
+                         [("The Marginal Synod", "frame"), ("The Throne Left Blank", "transmission")])
+        # Stored results stay pure references, so replay and reference validation are unchanged.
+        self.assertEqual(set(json.loads(self.last_operation()["result"])), {"id", "version"})
+
     async def test_titles_and_frame_names_are_bounded_labels(self):
         await self.steps(1)
         long = "T" * 201

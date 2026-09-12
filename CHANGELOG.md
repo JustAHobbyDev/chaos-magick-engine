@@ -1,5 +1,10 @@
 # Changelog
 
+## Reception episode and artifact visibility — 2026-09-12
+
+- Recorded a rival reading of Marker I as operator feedback, attributed to the operator's assistant, and ran two further live episodes. The demon read the document the feedback cited, published errata crediting the finder, and dropped its persona on request. Recorded in [design/009](design/009-first-live-run.md).
+- Showed the demon what it wrote. A `write_artifact` result was a bare reference, so history could not tell the demon what it had produced and it wrote the same errata three times. History entries for writes now carry a `wrote` description with title, kind, and size beside the unchanged reference, and the selected working's context lists its artifacts by title. One test added; the stored result shape is unchanged.
+
 ## First live run and fixes found by it — 2026-09-12
 
 - Ran five bounded live episodes against `claude-opus-5`: one working completed the whole cycle including a fresh-context examination and assimilation, and a second working began from the recorded next pursuit. Recorded in [design/009](design/009-first-live-run.md). No creative or comparative claim is made.
