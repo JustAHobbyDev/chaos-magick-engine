@@ -12,6 +12,10 @@ The selected founding demon is [The Heresiarch](design/004-founding-demon.md), a
 
 The [first runnable episode contract](design/005-first-runnable-episode.md) specifies input assembly, typed operations, working transitions, durable outcomes, command interruption, and acceptance checks for the first executable core.
 
+## Implementation handoff
+
+[Implement the first persistent core](HANDOFF-implement-persistent-core.md) is the Codex assignment for the executable Python/SQLite runtime, deterministic adapter, operator console, and recovery/interruption tests. It supplies concrete implementation choices and completion criteria. A live model adapter follows that first phase.
+
 ## Current artifact: Constraint Pathfinding
 
 **Constraint Pathfinding** remains the name of the practical problem-solving procedure. Its canonical artifact is [constraint-pathfinding.md](constraint-pathfinding.md), a self-contained, pasteable research and strategy prompt at version 0.2.0. It searches alternative representations and permissible transitions while keeping the observable endpoint and hard boundaries intact. The following usage instructions, cases, and evaluation results concern this procedure.

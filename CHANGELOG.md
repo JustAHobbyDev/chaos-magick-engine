@@ -1,5 +1,11 @@
 # Changelog
 
+## Persistent core implementation handoff — 2026-09-12
+
+- Added a ready-for-implementation Codex handoff against the reviewed first-episode design.
+- Selected Python 3.12+, standard-library SQLite/asyncio/unittest, and a local operator console for the deterministic first core.
+- Specified scope, persistence and command invariants, offline demo, race/recovery tests, preservation requirements, and draft-PR delivery. Live model integration remains the following phase.
+
 ## First episode contract — 2026-09-12
 
 - Specified the first runnable episode for The Heresiarch: context assembly, one typed operation per model step, frame exploration, separate examination, and assimilation.
