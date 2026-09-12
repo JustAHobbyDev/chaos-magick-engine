@@ -1,5 +1,9 @@
 # Changelog
 
+## Methodology criticisms recorded — 2026-09-12
+
+- Added [design/010](design/010-methodology-criticisms.md), collecting the criticisms of the v0.2 evaluation and of the project's direction raised by the live demon, its examiner, and operator-side feedback, with those that transfer to the live run itself and the one experiment they converge on. A record, not an endorsement.
+
 ## Reception episode and artifact visibility — 2026-09-12
 
 - Recorded a rival reading of Marker I as operator feedback, attributed to the operator's assistant, and ran two further live episodes. The demon read the document the feedback cited, published errata crediting the finder, and dropped its persona on request. Recorded in [design/009](design/009-first-live-run.md).
