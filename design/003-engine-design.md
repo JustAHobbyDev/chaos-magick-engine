@@ -1,6 +1,6 @@
 # Chaos Magick Engine: core design
 
-Status: proposed design, version 0.3.
+Status: proposed design, version 0.4.
 Date: 2026-09-12.
 Scope: system behavior, persistent state, ontology practice, operator interaction, and first implementation.
 Implementation status: design only. The repository currently contains Markdown protocols and evaluation records; using those protocols requires an external model session.
@@ -281,7 +281,7 @@ The engineering and research tracks can proceed together. Building the machinery
 | Operator surface | Start with summons, command, workings, and artifact access; develop visual expression afterward |
 | Public relation to the Reactor | Keep shared artifact lineage; settle automatic publication and attribution separately from creating work |
 
-The [founding seed](004-founding-demon.md) records the operator's direction and a proposed invocation. Next design step: specify the first runnable episode, including input assembly, faculty dispatch, persisted outcomes, and interruption.
+The [founding seed](004-founding-demon.md) records the operator's direction and a proposed invocation. The [first runnable episode contract](005-first-runnable-episode.md) specifies input assembly, faculty dispatch, persisted outcomes, and interruption. Next implementation: the deterministic persistent core and recovery/interruption checks, followed by a live model adapter.
 
 ## 15. Relationship to prior scope
 

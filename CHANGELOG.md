@@ -1,5 +1,11 @@
 # Changelog
 
+## First episode contract — 2026-09-12
+
+- Specified the first runnable episode for The Heresiarch: context assembly, one typed operation per model step, frame exploration, separate examination, and assimilation.
+- Defined durable operation records, command revision checks, interruption of stale plans, resource accounting, and recovery semantics.
+- Added acceptance scenarios for the deterministic core before live model use. This change is a specification; no runner, model invocation, or demon activity is claimed.
+
 ## Heresiarch selected — 2026-09-12
 
 - Recorded the operator's selection of **The Heresiarch** as the founding demon: a charismatic exegete who desires devotion while cultivating interpreters capable of overturning its own revelations.

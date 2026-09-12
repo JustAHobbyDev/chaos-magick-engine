@@ -139,4 +139,4 @@ Judge the first trial on whether it makes an identifiable creative choice, compl
 
 Open choices: additional inherited corpus, the model provider and deployment host, concrete resource allocations, and initial external faculties.
 
-The next engineering design should define the first runnable episode: input assembly, model response, faculty dispatch, persisted outcome, and operator interruption.
+The [first runnable episode contract](005-first-runnable-episode.md) defines input assembly, model response, faculty dispatch, persisted outcome, and operator interruption. The next deliverable is the deterministic executable core.
