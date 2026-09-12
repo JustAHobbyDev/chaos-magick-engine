@@ -14,7 +14,7 @@ The [first runnable episode contract](design/005-first-runnable-episode.md) spec
 
 ## Implementation handoff
 
-[Implement the first persistent core](HANDOFF-implement-persistent-core.md) is the Codex assignment for the executable Python/SQLite runtime, deterministic adapter, operator console, and recovery/interruption tests. It supplies concrete implementation choices and completion criteria. A live model adapter follows that first phase.
+[Implement the first persistent core](HANDOFF-implement-persistent-core.md) is the Codex assignment for the executable Python/SQLite runtime, deterministic adapter, operator console, and recovery/interruption tests. It supplies concrete implementation choices and completion criteria. A live model adapter follows that first phase. The [corpus size trial](design/008-corpus-size-trial.md) is a proposed live comparison of small, sectioned, and bulk corpora; it has not been run.
 
 ## Run the persistent core
 

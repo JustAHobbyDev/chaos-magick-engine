@@ -1,5 +1,9 @@
 # Changelog
 
+## Corpus size trial design — 2026-09-12
+
+- Added a proposed, unrun live experiment comparing small, sectioned, and bulk corpora on the same question, with engine measures kept separate from blind operator judgment. No engine behavior changes.
+
 ## Context delivery and budgeting — 2026-09-12
 
 - Bounded artifact titles and frame names to 200-character labels. A 12000-character title repeated in compact read results could overflow required history and stall the demon; stored legacy titles are truncated in projections.
