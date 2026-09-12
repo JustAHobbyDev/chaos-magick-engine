@@ -2,12 +2,29 @@
 import asyncio
 import json
 import os
+from pathlib import Path
 
 from .adapters import Reply, Request, ScriptedAdapter
 from .context import compile_context
 from .domain import Invalid, fields, reference, require, string
 from .faculties import Faculties
 from .store import encode, uid
+
+SOCKET_NAME = "control.sock"
+
+
+def socket_address(directory):
+    """Bind/connect address for the console socket, plus a directory fd to close afterwards.
+
+    Unix socket paths are limited to about 100 bytes. A longer state directory is reached through
+    the process's own /proc fd table on Linux; the socket file itself still lives in the directory.
+    """
+    path = Path(directory).resolve() / SOCKET_NAME
+    if len(os.fsencode(path)) <= 100:
+        return str(path), None
+    require(Path("/proc/self/fd").is_dir(), "state directory path is too long for a Unix socket on this platform")
+    fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    return f"/proc/self/fd/{fd}/{SOCKET_NAME}", fd
 
 
 class Runtime:
@@ -21,7 +38,8 @@ class Runtime:
         self.closed = False
         self.changed = asyncio.Event()
         self.stop = asyncio.Event()
-        self.socket = store.path / "control.sock"
+        self.socket = store.path / SOCKET_NAME
+        self.socket_fd = None
         store.recover()
         # A durable response with an uncommitted local effect is safe to reconcile.
         # Reuse its engine operation ID; never redispatch the provider.
@@ -40,13 +58,23 @@ class Runtime:
                     self.faculties.apply(op["id"])
                 except Invalid:
                     pass  # Validation rejection is already durably recorded.
+                except Exception as exc:
+                    # An engine fault must not become a permanent boot failure. The rollback left
+                    # no effect; record the fault durably and let the demon continue from its state.
+                    with store.transaction():
+                        store.db.execute("UPDATE operations SET status='failed',error=? WHERE id=?",
+                                         (f"engine fault: {exc}", op["id"]))
+                        store.db.execute("UPDATE invocations SET status='fault' WHERE id="
+                                         "(SELECT invocation FROM operations WHERE id=?)", (op["id"],))
+                        store.event("reconciliation_failed", {"operation": op["id"], "error": str(exc)})
 
     async def start(self):
         # Store acquired the lifetime lock before any stale socket can be removed.
         if self.socket.exists():
             self.socket.unlink()
-        self.server = await asyncio.start_unix_server(self.handle_client, path=str(self.socket), limit=65536)
-        os.chmod(self.socket, 0o600)
+        address, self.socket_fd = socket_address(self.s.path)
+        self.server = await asyncio.start_unix_server(self.handle_client, path=address, limit=65536)
+        os.chmod(address, 0o600)
 
     async def handle_client(self, reader, writer):
         try:
@@ -111,10 +139,12 @@ class Runtime:
             if kind in ("banish", "shutdown"):
                 s.db.execute("UPDATE identity SET wake=NULL")
             elif kind in ("summon", "direct", "restore", "feedback", "run") and s.identity()["lifecycle"] == "active":
-                s.db.execute("UPDATE identity SET wake=?", (kind,))
-                w = s.working()
-                if w and w["status"] == "waiting":
-                    s.db.execute("UPDATE workings SET status='unfinished' WHERE id=?", (w["id"],))
+                # Starting the scheduler or restoring is not an encounter: a persisted wait survives it.
+                if not (kind in ("run", "restore") and s.identity()["wake"]):
+                    s.db.execute("UPDATE identity SET wake=?", (kind,))
+                    w = s.working()
+                    if w and w["status"] == "waiting":
+                        s.db.execute("UPDATE workings SET status='unfinished' WHERE id=?", (w["id"],))
             if kind == "feedback":
                 ref = args["artifact_ref"]
                 s.db.execute("INSERT INTO feedback VALUES(?,?,?,?,?)",
@@ -159,9 +189,15 @@ class Runtime:
             return "pending"
         if not self.ready():
             return "dormant"
+        working = s.working()
         try:
             role, manifest, compiled = compile_context(s)
         except Invalid as exc:
+            if working and working["phase"] == "examination" and str(exc).startswith("required context overflow"):
+                # The material under examination cannot be assessed within the bound. Fail that
+                # examination explicitly and return the working to the demon instead of checkpointing
+                # into a state nothing can leave.
+                return self.faculties.fail_examination(str(exc))
             return self.checkpoint(str(exc))
         reserve = len(compiled) + s.config.output_chars
         allocation = s.one("SELECT * FROM allocation")
@@ -243,7 +279,9 @@ class Runtime:
                 failures += 1
                 if failures > self.s.config.retry_limit:
                     return self.checkpoint("retry_exhausted")
-            elif outcome != "applied":
+            elif outcome == "applied":
+                failures = 0  # The retry limit bounds consecutive failures.
+            elif outcome != "examination_failed":  # Consumed no call; the demon is invoked next.
                 return outcome
         return self.checkpoint("step_limit") if self.ready() else "waiting"
 
@@ -280,12 +318,19 @@ class Runtime:
             self.server.close()
             await self.server.wait_closed()
             self.socket.unlink(missing_ok=True)
+        if self.socket_fd is not None:
+            os.close(self.socket_fd)
+            self.socket_fd = None
         self.closed = True
 
 
 async def send(directory, command, **arguments):
-    from pathlib import Path
-    reader, writer = await asyncio.open_unix_connection(str(Path(directory).resolve() / "control.sock"), limit=10000000)
+    address, fd = socket_address(directory)
+    try:
+        reader, writer = await asyncio.open_unix_connection(address, limit=10000000)
+    finally:
+        if fd is not None:
+            os.close(fd)
     writer.write((encode({"command": command, "arguments": arguments}) + "\n").encode())
     await writer.drain()
     response = json.loads(await reader.readline())

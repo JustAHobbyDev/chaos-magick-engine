@@ -226,10 +226,19 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         await self.steps(1)
         for _ in range(3):
             self.r.command("summon", body="optional encounter " * 500)
+        # Room for every required block, including the latest summons, but not for the event tail.
+        self.configure(input_chars=48000)
+        required = {k: v for k, v in json.loads(compile_context(self.s)[2]).items()
+                    if k not in ("earlier_encounters", "read_material", "corpus_catalogue", "recent_outcomes",
+                                 "operator_feedback", "self_account")}
+        bound = len(encode(required)) + 200
+        self.configure(input_chars=bound)
         _, manifest, compiled = compile_context(self.s)
         self.assertIn("recent_outcomes", manifest["omitted"])
+        self.assertIn("earlier_encounters", manifest["omitted"])
         self.assertIn("authority", compiled)
-        self.assertLessEqual(len(compiled), 14000)
+        self.assertIn("encounter", json.loads(compiled))
+        self.assertLessEqual(len(compiled), bound)
 
     async def test_required_material_outranks_optional_context(self):
         await self.steps(7)
@@ -239,7 +248,7 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.propose("read_corpus", entry_id=big), "applied")
         full = json.loads(compile_context(self.s)[2])
         trimmed = {k: v for k, v in full.items()
-                   if k not in ("recent_outcomes", "operator_feedback", "self_account")}
+                   if k not in ("recent_outcomes", "operator_feedback", "self_account", "assimilation_products")}
         self.assertIn("read_material", trimmed)
         self.assertIn("assimilation_material", trimmed)
         without = {k: v for k, v in trimmed.items() if k != "assimilation_material"}
@@ -426,8 +435,156 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.s.working())
         self.assertEqual(self.s.one("SELECT * FROM allocation")["calls"], 0)
 
+    async def test_oversized_timer_is_rejected_not_engine_fault(self):
+        await self.steps(1)
+        outcome = await self.propose("wait", reason="x", wake_condition={"kind": "timer", "at": 10**400})
+        self.assertEqual(outcome, "invalid")
+        self.assertEqual(self.last_operation()["status"], "rejected")
+        for at in (float("inf"), float("nan"), True, -1, 2**53):
+            self.assertEqual(await self.propose("wait", reason="x", wake_condition={"kind": "timer", "at": at}), "invalid")
+        self.assertEqual(self.s.working()["status"], "unfinished")
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_reconciliation_fault_is_recorded_not_boot_failure(self):
+        from unittest import mock
+        from chaos_magick_engine import runtime as module
+        from chaos_magick_engine.faculties import Faculties
+        # A returned reply whose local application faults must not brick every later startup.
+        def crash(boundary):
+            if boundary == "before_commit":
+                raise RuntimeError("synthetic engine fault")
+        self.r.faculties.crash_hook = crash
+        with self.assertRaises(RuntimeError):
+            await self.r.step()
+        op = self.last_operation()
+        self.assertEqual(op["status"], "pending")
+        class Faulting(Faculties):
+            def apply(self, operation_id):
+                raise RuntimeError("deterministic engine fault")
+        with mock.patch.object(module, "Faculties", Faulting):
+            Runtime(self.s)
+        op = self.s.one("SELECT * FROM operations WHERE id=?", (op["id"],))
+        self.assertEqual(op["status"], "failed")
+        self.assertIn("engine fault", op["error"])
+        self.assertEqual(self.s.one("SELECT status FROM invocations")["status"], "fault")
+        self.assertIsNone(self.s.working())
+        self.r = Runtime(self.s)  # A normal startup now succeeds and the demon can continue.
+        self.r.command("run")
+        await self.steps(1)
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_examination_overflow_fails_explicitly_and_returns_working(self):
+        big = self.s.import_corpus("large fixture", "the margin holds an unclaimed throne. " * 1400)
+        await self.steps(2)
+        self.assertEqual(await self.propose("read_corpus", entry_id=big), "applied")
+        self.r.adapter = ScriptedAdapter()
+        await self.steps(4)  # define, enter, write, leave
+        self.assertEqual(self.s.working()["phase"], "examination")
+        # The product declares only the small entry, so the large one is optional and examination compiles.
+        role, manifest, compiled = compile_context(self.s)
+        self.assertEqual(role, "examiner")
+        self.assertIn("quoted_working_sources", manifest["omitted"])
+        self.assertIn("Who owns the silence", compiled)
+        # Make even the declared material impossible to fit: examination fails explicitly instead of stalling.
+        self.configure(input_chars=len(encode({k: v for k, v in json.loads(compiled).items() if k != "examination"})) + 10)
+        self.assertEqual(await self.r.step(), "examination_failed")
+        w = self.s.working()
+        self.assertEqual(w["phase"], "orientation")
+        self.assertIsNone(w["data"]["active_frame"])
+        self.assertEqual(w["data"]["segments"][-1]["examination"]["status"], "failed")
+        self.assertIsNotNone(self.s.identity()["wake"])
+        self.assertEqual(self.s.one("SELECT * FROM allocation")["calls"], 7)
+        # The demon is invoked as itself next and may defer the working.
+        self.configure(input_chars=48000)
+        self.assertEqual(await self.propose("finish_working", outcome="deferred", product_refs=w["data"]["products"],
+                                           unresolved_questions=["Too large to examine."]), "applied")
+        self.assertEqual(self.s.verify(), [])
+
+    async def test_run_and_restore_keep_persisted_wait(self):
+        await self.steps(1)
+        self.assertEqual(await self.propose("wait", reason="await reception",
+                                           wake_condition={"kind": "event", "event": "operator"}), "applied")
+        condition = self.s.identity()["wake"]
+        self.r.command("run")
+        self.assertEqual(self.s.identity()["wake"], condition)
+        self.assertEqual(self.s.working()["status"], "waiting")
+        self.assertFalse(self.r.ready())
+        self.r.command("suspend")
+        self.r.command("restore")
+        self.assertEqual(self.s.identity()["wake"], condition)
+        self.assertFalse(self.r.ready())
+        self.r.command("summon", body="An actual encounter.")
+        self.assertTrue(self.r.ready())
+        self.r.command("banish")
+        self.r.command("restore")  # Nothing persisted: restore itself wakes.
+        self.assertEqual(self.s.identity()["wake"], "restore")
+
+    async def test_summons_is_required_until_a_proposal_commits_with_it(self):
+        first = self.r.command("summon", body="UNIQUE-SUMMONS-77 speak to me")
+        _, manifest, compiled = compile_context(self.s)
+        body = json.loads(compiled)
+        self.assertEqual(body["encounter"]["id"], first["id"])
+        self.assertEqual(manifest["encounter_ids"], [first["id"]])
+        adapter, task = await self.blocked()
+        self.assertIn("UNIQUE-SUMMONS-77", adapter.request.compiled)
+        await asyncio.wait_for(send(self.path, "suspend"), 1)
+        adapter.release.set()
+        self.assertEqual(await task, "superseded")
+        # A superseded reply delivers nothing: the summons is still owed to the demon.
+        self.assertEqual(self.s.one("SELECT status FROM commands WHERE id=?", (first["id"],))["status"], "received")
+        self.r.command("restore")
+        second = self.r.command("summon", body="UNIQUE-SUMMONS-78 again")
+        body = json.loads(compile_context(self.s)[2])
+        self.assertEqual(body["encounter"]["id"], second["id"])
+        self.assertEqual([row["id"] for row in body["earlier_encounters"]], [first["id"]])
+        self.r.adapter = ScriptedAdapter()
+        await self.steps(1)
+        statuses = {row["id"]: row["status"] for row in self.s.rows("SELECT id,status FROM commands WHERE kind='summon'")}
+        self.assertEqual(statuses, {first["id"]: "delivered", second["id"]: "delivered"})
+        self.assertNotIn("encounter", json.loads(compile_context(self.s)[2]))
+        self.assertEqual(self.s.verify(), [])
+
 
 class SubprocessTests(unittest.TestCase):
+    def test_console_works_for_long_state_directory_paths(self):
+        with tempfile.TemporaryDirectory(prefix="cme-long-") as temp:
+            path = Path(temp) / ("deep-" * 25) / "state"
+            self.assertGreater(len(str(path)), 108)
+            s = initialize(path, ROOT / "demo/config.json")
+            s.close()
+            program = """
+import asyncio, sys
+from chaos_magick_engine.runtime import Runtime
+from chaos_magick_engine.store import Store
+s = Store(sys.argv[1])
+async def main():
+    r = Runtime(s)
+    await r.start()
+    print("READY", flush=True)
+    await r.stop.wait()
+    await r.close()
+asyncio.run(main())
+s.close()
+"""
+            child = subprocess.Popen([sys.executable, "-c", program, str(path)], cwd=ROOT,
+                                     text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "READY")
+                inspect = subprocess.run([sys.executable, "-m", "chaos_magick_engine", "--state-dir", str(path), "inspect"],
+                                         cwd=ROOT, capture_output=True, text=True, timeout=5)
+                self.assertEqual(inspect.returncode, 0, inspect.stderr)
+                self.assertEqual(json.loads(inspect.stdout)["identity"]["lifecycle"], "active")
+                shutdown = subprocess.run([sys.executable, "-m", "chaos_magick_engine", "--state-dir", str(path), "shutdown"],
+                                          cwd=ROOT, capture_output=True, text=True, timeout=5)
+                self.assertEqual(shutdown.returncode, 0, shutdown.stderr)
+                _, stderr = child.communicate(timeout=5)
+                self.assertEqual(child.returncode, 0, stderr)
+                self.assertFalse((path / "control.sock").exists())
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                    child.communicate()
+
     def test_demo_real_process_restart(self):
         with tempfile.TemporaryDirectory(prefix="cme-demo-") as temp:
             path = Path(temp) / "state"

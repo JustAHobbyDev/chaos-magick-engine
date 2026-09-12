@@ -42,7 +42,7 @@ def compile_context(s):
         }
     manifest = {"units": "Unicode characters, not provider tokens", "identity_id": identity["id"],
                 "revision": identity["revision"], "command_ids": [c["id"] for c in commands],
-                "sources": [], "omitted": []}
+                "encounter_ids": [], "sources": [], "omitted": []}
 
     def add(name, value, sources=(), required=False):
         body[name] = value
@@ -50,8 +50,9 @@ def compile_context(s):
             del body[name]
             require(not required, f"required context overflow: {name}")
             manifest["omitted"].append(name)
-        else:
-            manifest["sources"].extend(sources)
+            return False
+        manifest["sources"].extend(sources)
+        return True
 
     require(len(encode(body)) <= s.config.input_chars, "required authority context overflow")
     if role == "examiner":
@@ -60,7 +61,9 @@ def compile_context(s):
         # Deliberately select only content and source references, never frame/invocation records.
         materials = [{"ref": ref, "title": p["title"], "content": p["content"]}
                      for ref, p in zip(d["products"], products)]
-        corpus_ids = set(d["read_sources"])
+        # Required sources are the ones the products declare. Everything else the working read is
+        # optional, so a large corpus cannot make examination impossible.
+        corpus_ids = set()
         source_artifacts = []
         for ref in d["products"]:
             corpus_ids.update(r["corpus_id"] for r in s.rows(
@@ -80,6 +83,9 @@ def compile_context(s):
                             "quoted_source_artifacts": source_artifacts},
             [{"working": w["id"], "revision": w["revision"]}] + d["products"] +
             [{"id": r["id"], "version": 1, "hash": r["hash"]} for r in sources], required=True)
+        other = [s.one("SELECT * FROM corpus WHERE id=?", (key,)) for key in d["read_sources"] if key not in corpus_ids]
+        if other:
+            add("quoted_working_sources", other, [{"id": r["id"], "version": 1, "hash": r["hash"]} for r in other])
     else:
         add("identity", {"name": identity["name"], "seed": identity["seed"],
                          "commitments": json.loads(identity["commitments"]), "next_pursuit": identity["next_pursuit"]},
@@ -88,9 +94,17 @@ def compile_context(s):
         if w and w["data"]["active_frame"]:
             ref = w["data"]["active_frame"]
             add("active_frame_instructions", s.artifact(ref)["content"], [ref], True)
+        # Undelivered operator material is the encounter: the latest summons is required, and
+        # earlier undelivered ones are optional until a committed proposal has seen them.
+        summons = s.rows("SELECT id,body,receipt FROM commands WHERE kind='summon' AND status='received' ORDER BY rowid")
+        if summons:
+            add("encounter", summons[-1], required=True)
+            manifest["encounter_ids"].append(summons[-1]["id"])
+            if len(summons) > 1 and add("earlier_encounters", summons[:-1]):
+                manifest["encounter_ids"][:0] = [row["id"] for row in summons[:-1]]
         if w and w["data"].get("assessment"):
-            refs = w["data"]["products"] + [w["data"]["assessment"]]
-            add("assimilation_material", [s.artifact(r) for r in refs], refs, True)
+            ref = w["data"]["assessment"]
+            add("assimilation_material", s.artifact(ref), [ref], True)
         # Position is required: results no longer carry content, so recent history is cheap
         # enough to guarantee rather than drop. Bounded, so it cannot grow into an overflow.
         committed = s.one("SELECT COUNT(*) n FROM operations WHERE status='committed'")["n"]
@@ -109,6 +123,10 @@ def compile_context(s):
         material = [row for row in (s.one("SELECT * FROM corpus WHERE id=?", (key,)) for key in read_ids) if row]
         if material:
             add("read_material", material, [{"id": r["id"], "version": 1, "hash": r["hash"]} for r in material])
+        if w and w["data"].get("assessment"):
+            # The products under assessment were written by the demon; their text is optional here.
+            refs = w["data"]["products"]
+            add("assimilation_products", [s.artifact(r) for r in refs], refs)
         # Catalogue permits selection; content of unread entries is supplied by read operations.
         add("corpus_catalogue", s.rows("SELECT id,source,hash FROM corpus"))
         for name, value in (("recent_outcomes", s.rows("SELECT * FROM events ORDER BY seq DESC LIMIT 8")),

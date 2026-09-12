@@ -48,6 +48,18 @@ def references(value):
         reference(item)
 
 
+def wake_condition(value):
+    require(type(value) is dict and value.get("kind") in ("timer", "event"), "unsupported wake condition")
+    if value["kind"] == "timer":
+        fields(value, ("kind", "at"))
+        at = value["at"]
+        # Bounded before any float conversion: an oversized integer must be a rejection, not a fault.
+        require(type(at) in (int, float) and 0 < at < 2**53, "timer must be a finite positive timestamp")
+    else:
+        fields(value, ("kind", "event"))
+        require(value["event"] == "operator", "unsupported wake event")
+
+
 # Arguments are exact; references carry immutable versions, never model authority.
 CONTRACTS = {
     "begin_working": dict(question=string, intended_product=string, motivation=string),
@@ -65,7 +77,7 @@ CONTRACTS = {
     "assimilate": dict(assessment_ref=reference, self_account_change=string,
                        doctrine_changes=strings, next_pursuit=string),
     "finish_working": dict(outcome=string, product_refs=references, unresolved_questions=strings),
-    "wait": dict(reason=string, wake_condition=lambda v: None),
+    "wait": dict(reason=string, wake_condition=wake_condition),
 }
 KINDS = {"exegesis", "theory", "rite", "transmission", "agent_seed", "frame", "research_note"}
 PHASES = {

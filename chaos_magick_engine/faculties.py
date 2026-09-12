@@ -49,6 +49,9 @@ class Faculties:
                 s.db.execute("UPDATE operations SET status='committed',proposal=?,result=? WHERE id=?",
                              (encode(value), encode(result), operation_id))
                 s.db.execute("UPDATE invocations SET status='applied' WHERE id=?", (inv["id"],))
+                # Operator material counts as delivered only once a proposal compiled with it commits.
+                for command_id in json.loads(inv["manifest"]).get("encounter_ids", []):
+                    s.db.execute("UPDATE commands SET status='delivered' WHERE id=? AND status='received'", (command_id,))
                 s.event(name, {"result": result, "invocation": inv["id"]}, operation_id,
                         actor="examiner" if name == "examine" else s.identity()["id"])
                 self.crash_hook("before_commit")
@@ -60,6 +63,22 @@ class Faculties:
                 s.db.execute("UPDATE invocations SET status='invalid' WHERE id=?", (inv["id"],))
                 s.event("validation_rejected", {"operation": operation_id, "error": str(exc)})
             raise
+
+    def fail_examination(self, reason):
+        """Examination that cannot be compiled ends explicitly and returns the working to the demon."""
+        s = self.s
+        with s.transaction():
+            w = s.working()
+            require(w is not None and w["phase"] == "examination", "no examination pending")
+            d = w["data"]
+            segments = d.setdefault("segments", [])
+            if segments:
+                segments[-1]["examination"] = {"status": "failed", "reason": reason}
+            w["phase"] = "orientation"
+            s.db.execute("UPDATE workings SET phase=?,revision=revision+1,data=? WHERE id=?",
+                         (w["phase"], encode(d), w["id"]))
+            s.event("examination_failed", {"working": w["id"], "products": d["products"], "reason": reason})
+        return "examination_failed"
 
     def frame_content(self, content):
         frame = parse(content, self.s.config.output_chars)
@@ -190,18 +209,8 @@ class Faculties:
             w["phase"], w["status"] = "settled", a["outcome"]
             return {"outcome": a["outcome"]}, w
         if name == "wait":
-            from .domain import fields, string
-            condition = a["wake_condition"]
-            require(type(condition) is dict, "invalid wake condition")
-            if condition.get("kind") == "timer":
-                fields(condition, ("kind", "at"))
-                import math
-                require(type(condition["at"]) in (int, float) and math.isfinite(condition["at"])
-                        and condition["at"] > s.clock(), "timer must be finite and in the future")
-            else:
-                fields(condition, ("kind", "event"))
-                require(condition["kind"] == "event" and condition["event"] == "operator", "unsupported wake")
-            string(a["reason"])
+            condition = a["wake_condition"]  # Shape and bounds were validated with the proposal.
+            require(condition["kind"] != "timer" or condition["at"] > s.clock(), "timer must be in the future")
             s.db.execute("UPDATE identity SET wake=?", (encode({"condition": condition, "reason": a["reason"]}),))
             if w and w["status"] == "unfinished":
                 w["status"] = "waiting"

@@ -65,6 +65,16 @@
 - Added an offline demo that actually restarts subprocesses, suppresses a barrier-controlled stale response, exports artifacts, and records execution evidence; added invariant and subprocess tests.
 - Documented setup, supported scope, technical decisions, and verification. Preserved historical prompt/evaluation artifacts. No live model-backed demon or creative efficacy is claimed.
 
+## Review fixes — 2026-09-12
+
+- Validated wake conditions with the proposal, bounding timer values below 2^53. An oversized integer previously raised OverflowError inside the applying transaction, and because startup reconciliation caught only validation rejections, every later startup raised the same fault; the operator had no console path out.
+- Recorded non-validation faults during startup reconciliation as failed operations instead of boot failures. The rollback leaves no effect; the fault and its invocation are durable.
+- Limited required examiner material to the sources the products declare; other read material is optional. A working that had read one entry larger than the input bound reached examination and checkpointed on every wake with the same overflow, and no operation is legal in examination, so nothing could leave it. If even the declared material cannot fit, the examination now fails explicitly and returns the working to orientation. The products under assessment are likewise optional in assimilation.
+- Made `run` and `restore` keep a persisted wait condition. Starting the server previously overwrote a wait for an operator event with an immediate wake.
+- Delivered summons bodies through a required `encounter` block, marked delivered only by a committing proposal. They previously reached the model only through the optional recent-event tail and were dropped first under budget pressure.
+- Bound and connect the console through `/proc/self/fd` when the state directory path exceeds the Unix socket limit; the demo previously failed with `AF_UNIX path too long`.
+- Reset the episode failure count after a successful step, named the wake-condition validator so the faculty listing no longer shows `<lambda>`, and added six regression tests. No live model, provider, or creative claim is involved.
+
 ## Context budgeting fixes — 2026-09-11
 
 - Assembled required context before optional context. Assimilation material was compiled after the optional catalogue, history, feedback, and self-account blocks, so optional material claimed the budget first and the required block was refused after it; a working could reach assimilation and never leave it, because the step checkpointed, cleared the wake, and every later summons recompiled the same overflowing context.

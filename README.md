@@ -50,7 +50,7 @@ python -m chaos_magick_engine --state-dir .runtime/heresiarch shutdown
 python -m chaos_magick_engine --state-dir .runtime/heresiarch export --output .runtime/heresiarch/exports
 ```
 
-`run --once --steps 5` runs a bounded episode and exits, leaving the same identity and unfinished working on disk. A later `run` resumes it; a suspended or banished identity requires `restore`. `run` against an active server requests a wake. Inspect never calls the adapter. Import/export/verify require a stopped runner; operator commands also work offline under the same writer lock.
+`run --once --steps 5` runs a bounded episode and exits, leaving the same identity and unfinished working on disk. A later `run` resumes it; a suspended or banished identity requires `restore`. `run` against an active server wakes a dormant demon, and a persisted wait for a timer or operator event is kept until it is met. A summons is delivered as a required encounter and stays owed until a proposal compiled with it commits. Inspect never calls the adapter. Import/export/verify require a stopped runner; operator commands also work offline under the same writer lock.
 
 Directions accumulate. Use `direct BODY --scope WORKING_ID` to target an existing working, or the default `demon` scope. `--supersedes COMMAND_ID` explicitly replaces a direction in the same scope. Receipts and IDs appear in console JSON. Record reception with `feedback ARTIFACT_ID VERSION BODY`; feedback stays linked to that immutable version, and later interpretations are separate artifacts.
 
