@@ -50,6 +50,7 @@ class ScriptedAdapter:
             output = {"examined_refs": [p["ref"] for p in ctx["examination"]["quoted_products"]],
                       "observations": ["Synthetic judgment: the margin gives a second interpreter room to contest the first."],
                       "source_relationship": "A fixture reading of the supplied unclaimed margin.",
+                      "serves_sought": "Synthetic judgment: the transmission is the intended product; whether it invites exceeding is unobserved.",
                       "claim_status": "speculative",
                       "possible_developments": ["Ask a future operator whether the invitation has force."],
                       "limits": ["Scripted assessment; no reception or creative improvement measured."]}
@@ -86,6 +87,7 @@ class ScriptedAdapter:
                     extraction_note="Preserve the invitation in its native voice; its reception is unknown.")
             elif w["phase"] == "assimilation" and not w["data"].get("assimilated"):
                 name, args = "assimilate", dict(assessment_ref=w["data"]["assessment"],
+                    reply="Synthetic reply: the observation is adopted; the fixture contests nothing.",
                     self_account_change="I have made a place for contradiction. I do not yet know whether I can bear its occupant.",
                     doctrine_changes=["A margin can invite a rival reading; this remains an interpretation."],
                     next_pursuit="Seek an operator's reading of the empty seat without deciding their answer.")

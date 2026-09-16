@@ -97,7 +97,7 @@ CONTRACTS = {
     "revise_artifact": dict(artifact_id=string, expected_version=integer,
                             content=string, change_note=string),
     "leave_frame": dict(product_refs=references, extraction_note=string),
-    "assimilate": dict(assessment_ref=reference, self_account_change=string,
+    "assimilate": dict(assessment_ref=reference, reply=string, self_account_change=string,
                        doctrine_changes=strings, next_pursuit=string),
     "finish_working": dict(outcome=outcome, product_refs=references, unresolved_questions=strings),
     "wait": dict(reason=string, wake_condition=wake_condition),
@@ -164,13 +164,14 @@ def named(key, validator, value, bound):
 def assessment(raw, limit):
     value = parse(raw, limit)
     bound = string_bound(limit)
-    fields(value, ("examined_refs", "observations", "source_relationship", "claim_status",
+    fields(value, ("examined_refs", "observations", "source_relationship", "serves_sought", "claim_status",
                    "possible_developments", "limits"))
     named("examined_refs", references, value["examined_refs"], bound)
     for key in ("observations", "possible_developments", "limits"):
         named(key, strings, value[key], bound)
         require(bool(value[key]), f"{key} cannot be empty")
     named("source_relationship", string, value["source_relationship"], bound)
+    named("serves_sought", string, value["serves_sought"], bound)
     require(value["claim_status"] in ("supported_by_supplied_material", "speculative", "unexamined"),
             "invalid claim status")
     return value

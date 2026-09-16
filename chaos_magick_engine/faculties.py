@@ -203,7 +203,9 @@ class Faculties:
             s.check_refs(a["product_refs"])
             require(all(s.artifact(r)["working"] == w["id"] for r in a["product_refs"]), "foreign product")
             if a["outcome"] == "completed":
-                require(w["phase"] == "assimilation" and d.get("assimilated"), "completion needs assimilation")
+                require(w["phase"] == "assimilation" and d.get("assimilated"),
+                        "completion needs assimilation: define and enter a frame, leave it naming the products, and assimilate "
+                        "the assessment; a working that is done without examination finishes with outcome deferred or abandoned")
             if d["active_frame"]:
                 d.setdefault("segments", []).append({"frame": d["active_frame"], "products": a["product_refs"],
                                                       "outcome": a["outcome"], "segment": d["segment"]})

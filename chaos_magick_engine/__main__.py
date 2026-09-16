@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import json
 from pathlib import Path
+import re
 import signal
 import sys
 
@@ -13,12 +14,36 @@ from .store import Store, encode
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def initialize(directory, config_path):
-    config = Config.from_dict(json.loads(Path(config_path).read_text()))
-    source = (ROOT / "design/004-founding-demon.md").read_text()
+DEFAULT_DEMON = "design/004-founding-demon.md"
+
+
+def demon_seed(path):
+    """Name, seed, source, and version from a demon design document.
+
+    The name is the title before its colon; the seed is the blockquote under the compact invocation
+    heading; the version is the one the status line declares. The exact text and its hash are recorded.
+    """
+    path = Path(path)
+    source = path.read_text()
+    title = source.splitlines()[0]
+    require(title.startswith("# ") and ":" in title, "demon document must begin with '# Name: ...'")
+    name = title[2:].split(":", 1)[0].strip()
+    require("## Compact invocation seed\n" in source, "demon document has no compact invocation seed")
     section = source.split("## Compact invocation seed\n", 1)[1].split("\n## ", 1)[0]
     seed = "\n".join(line[2:] if line.startswith("> ") else "" for line in section.splitlines() if line.startswith(">"))
-    return Store(directory, initialize=True, config=config, seed=seed)
+    require(seed.strip(), "compact invocation seed is empty")
+    version = re.search(r"Version (\d+\.\d+)", source)
+    try:
+        relative = str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        relative = str(path)
+    return name, seed, f"{relative}#compact-invocation-seed", version.group(1) if version else "0"
+
+
+def initialize(directory, config_path, demon_path=None):
+    config = Config.from_dict(json.loads(Path(config_path).read_text()))
+    name, seed, seed_source, version = demon_seed(ROOT / DEFAULT_DEMON if demon_path is None else demon_path)
+    return Store(directory, initialize=True, config=config, seed=seed, name=name, seed_source=seed_source, seed_version=version)
 
 
 def export(s, directory, artifact_id=None):
@@ -140,6 +165,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("init")
     p.add_argument("--config", default=str(ROOT / "demo/config.json"))
+    p.add_argument("--demon", help=f"design document whose compact invocation seed founds the identity; default {DEFAULT_DEMON}")
     p = sub.add_parser("import-corpus")
     p.add_argument("file")
     p.add_argument("--source")
@@ -197,8 +223,8 @@ def main(argv=None):
             print(encode(bounded_loop(live_check(args))))
             return 0
         if args.command == "init":
-            s = initialize(args.state_dir, args.config)
-            result = {"identity_id": s.identity()["id"]}
+            s = initialize(args.state_dir, args.config, args.demon)
+            result = {"identity_id": s.identity()["id"], "name": s.identity()["name"], "seed_source": s.identity()["seed_source"]}
             s.close()
         elif args.command in {"inspect", "summon", "direct", "suspend", "banish", "restore", "feedback", "shutdown"}:
             payload = {}

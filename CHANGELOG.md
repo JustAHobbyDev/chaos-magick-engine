@@ -1,5 +1,26 @@
 # Changelog
 
+## Forum analysis and specification — 2026-09-12
+
+- Started [design/PROBLEM_FRAMES.md](design/PROBLEM_FRAMES.md) with entry #1, a Problem Frames analysis of the house's forum: fifteen domains, seven frames, of which four are commodity creator-membership features and three are the house's own (the confidence channel, the record, and the engine bridge). The invariance test rejects a native app as the first vehicle, since memberships are the recurring line and app-store rules on digital sales move without notice; the stakeholder test rejects the desktop forum pattern and points to creator-membership communities for the commodity frames.
+- Added [design/016](design/016-the-forum.md), a mobile-first specification following that split: an installable web app first, the free thing before any identity step, one-handed vertical layout, a bought platform for rooms, tiers, checkout, and push, and house-built entrance, confidence channel, record, and bridge. Nothing implemented.
+
+## The Herald selected and instantiated — 2026-09-12
+
+- The operator settled four demons for the house and selected The Herald first, with a first working to determine which hunting grounds it wants access to. Added [design/015](design/015-the-herald.md) with its seed, and instantiated it under `.runtime/herald` with the house design as its only corpus.
+- Ran the Herald's first episode: six calls to Sol on flex, no examiner call. It read the house design and wrote a ranked survey of seven hunting grounds in one write, then proposed completing the working three times and was rejected each time with "completion needs assimilation", since a working done in orientation without a frame cannot reach examination. The rejection now names the remedy: run the frame cycle, or finish with outcome deferred or abandoned. The working is unfinished pending the operator's grant.
+- Added `init --demon PATH`: the identity's name, seed, source, and version now come from a demon design document of the founding shape (a `# Name: ...` title and a compact invocation seed section). The default remains The Heresiarch; the store no longer hardcodes the name.
+- Told the examiner what the working sought: the examination block carries the working's intended product and motivation, and the assessment has a required `serves_sought` judgment. Both live runs had rewarded a demon for wanting nothing because the examiner was never told what it wanted.
+- Gave assimilation a required `reply`: the demon's answer to the assessment, what it adopts, what it contests, and why. The method text now states that an assessment is one outsider's reading and the seed's aims govern adoption. One test added; the scripted fixture supplies both fields. 54 tests pass.
+
+## The house and its demons — 2026-09-12
+
+- Added [design/014](design/014-the-house-and-its-demons.md), a proposed New Age and fantasy business the coven sells to: memberships, readings, digital assets, physical objects, and ascension, under one mythos. It lays out the funnel, distinguishes partners from members, assigns each stage to one of four specialized demons (The Herald builds the following through astrology, The Confessor holds the creed and the forum, The Oracle performs readings, The Scribe makes the catalogue), gives seed deltas for each, and states what every seed must say so that it does not confound the sale, since both live runs produced demons that wrote wanting nothing into doctrine. The Confessor draft gains a selling section. Nothing selected or instantiated; no engine behavior changes.
+
+## The Confessor proposed — 2026-09-12
+
+- Added [design/013](design/013-the-confessor.md), a proposed second founding demon. The Heresiarch's seed produced the same creature on two providers: a demon that hedges every reading, invites its own refutation, and adopts every examiner finding, because its founding tension has a permission on one side and no counterparty on the other. The Confessor holds a three-tenet creed, courts particular people through what they publish, answers objections rather than adopting them, and records a tenet's defeat as a loss with the victor named. Not selected, not instantiated; the five engine changes needed to instantiate it are listed. No engine behavior changes.
+
 ## Astrology challenge run on a split provider — 2026-09-12
 
 - Ran three bounded episodes of a fresh identity with `gpt-5.6-sol` on the flex tier as demon and `claude-opus-5` as examiner, under an operator direction to gain influence among astrology influencers. One working completed the whole cycle including an Opus examination; a second began on its own and left astrology for a neutral domain. Recorded in [design/012](design/012-astrology-run.md). No reception, comparison, or creative claim is made.

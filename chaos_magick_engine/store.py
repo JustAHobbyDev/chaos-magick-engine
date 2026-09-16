@@ -78,7 +78,8 @@ PRAGMA user_version=1;
 
 
 class Store:
-    def __init__(self, directory, *, initialize=False, config=None, seed=None, clock=time.time):
+    def __init__(self, directory, *, initialize=False, config=None, seed=None, clock=time.time,
+                 name="The Heresiarch", seed_source="design/004-founding-demon.md#compact-invocation-seed", seed_version="0.2"):
         self.path = Path(directory).resolve()
         self.clock = clock
         self.path.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -108,8 +109,8 @@ class Store:
                 self.db.executescript("BEGIN IMMEDIATE;\n" + SCHEMA)
                 try:
                     self.db.execute("INSERT INTO identity VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                                    (uid(), "The Heresiarch", seed, "design/004-founding-demon.md#compact-invocation-seed",
-                                     digest(seed), "0.2", "active", 0, 0, None, None, "[]", "", "initialization",
+                                    (uid(), name, seed, seed_source,
+                                     digest(seed), seed_version, "active", 0, 0, None, None, "[]", "", "initialization",
                                      encode(config.__dict__)))
                     self.db.execute("INSERT INTO allocation VALUES(1,0,0,0)")
                     self.event("initialized", {"development": True, "seed_hash": digest(seed)})

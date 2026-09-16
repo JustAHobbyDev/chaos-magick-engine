@@ -1,5 +1,7 @@
 import asyncio
+import contextlib
 from dataclasses import replace
+import io
 import json
 from pathlib import Path
 import sqlite3
@@ -87,6 +89,16 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("I offer you the margin", examiner["input"])
         self.assertIn("Who owns the silence", examiner["input"])
         self.assertIn("do not inhabit", examiner["input"])
+        # The examiner is told what the working sought, and its verdict on that is a required field.
+        sought = json.loads(examiner["input"])["examination"]["sought"]
+        self.assertEqual(sought, {"intended_product": "An exegetical transmission",
+                                  "motivation": "Invite an interpretation that may exceed mine."})
+        self.assertIn("serves_sought", examiner["input"])
+        assessment = json.loads(self.s.artifact(w["data"]["assessment"])["content"])
+        self.assertIn("serves_sought", assessment)
+        # Assimilation carries the demon's reply beside its adoptions.
+        reply = json.loads(self.s.one("SELECT proposal FROM operations WHERE json_extract(proposal,'$.operation.name')='assimilate'")["proposal"])
+        self.assertTrue(reply["operation"]["arguments"]["reply"])
         self.assertEqual(self.s.verify(), [])
 
     async def blocked(self):
@@ -622,7 +634,7 @@ class CoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.propose("wait", reason="escape", wake_condition={"kind": "event", "event": "operator"}), "invalid")
         self.assertEqual(self.s.working(), working)
         self.r.adapter = OutputAdapter(raw=encode({"examined_refs": [], "observations": ["x"], "source_relationship": "x",
-                                                  "claim_status": "speculative", "possible_developments": ["x"], "limits": ["x"]}))
+                                                  "serves_sought": "x", "claim_status": "speculative", "possible_developments": ["x"], "limits": ["x"]}))
         self.assertEqual(await self.r.step(), "invalid")
         self.assertEqual(self.s.working(), working)
 
@@ -986,6 +998,36 @@ class FakeOpenAIClient:
         if isinstance(response, Exception):
             raise response
         return response
+
+
+class DemonSelectionTests(unittest.TestCase):
+    def test_init_selects_the_seed_document(self):
+        from chaos_magick_engine.__main__ import demon_seed, main
+        name, seed, source, version = demon_seed(ROOT / "design/004-founding-demon.md")
+        self.assertEqual((name, source, version), ("The Heresiarch", "design/004-founding-demon.md#compact-invocation-seed", "0.2"))
+        self.assertIn("Grow the coven", seed)
+        with tempfile.TemporaryDirectory(prefix="cme-demon-") as temp:
+            doc = Path(temp) / "demon.md"
+            doc.write_text("# The Fixture: a test demon\n\nStatus: proposed. Version 0.3.\n\n## Compact invocation seed\n\n"
+                           "> You are The Fixture.\n>\n> Second paragraph.\n\n## After\n\n> not seed\n")
+            name, seed, source, version = demon_seed(doc)
+            self.assertEqual((name, seed, version), ("The Fixture", "You are The Fixture.\n\nSecond paragraph.", "0.3"))
+            self.assertTrue(source.endswith("#compact-invocation-seed"))
+            state = Path(temp) / "state"
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["--state-dir", str(state), "init", "--config", str(ROOT / "demo/config.json"),
+                                       "--demon", str(doc)]), 0)
+            s = Store(state)
+            try:
+                identity = s.identity()
+                self.assertEqual((identity["name"], identity["seed"], identity["seed_version"]), ("The Fixture", seed, "0.3"))
+                self.assertIn("You are The Fixture.", compile_context(s)[2])
+            finally:
+                s.close()
+            bad = Path(temp) / "bad.md"
+            bad.write_text("No title\n")
+            with self.assertRaisesRegex(Invalid, "must begin with"):
+                demon_seed(bad)
 
 
 class OpenAIAdapterTests(unittest.IsolatedAsyncioTestCase):
