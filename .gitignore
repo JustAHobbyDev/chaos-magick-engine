@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+.runtime/
+*.sqlite3*
+*.sock
+*.log
+exports/
+execution-report.json
+execution-report.md
+*.local.json
+.env
+.env.*
+credentials/
